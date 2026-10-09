@@ -10,6 +10,8 @@
 kinematics chains with FABRIK, CCD, or Jacobian solvers and hinge, ball socket, and
 slider constraints.
 
+https://github.com/user-attachments/assets/124f04d5-e9f4-4067-ba43-f49f7a5b3c19
+
 ## What's included
 
 - **Three solvers:** FABRIK and CCD for end-effector position. Damped least-squares
