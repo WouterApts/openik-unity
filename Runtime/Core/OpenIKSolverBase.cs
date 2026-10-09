@@ -4,8 +4,7 @@ using UnityEngine;
 namespace OpenIK
 {
     /// <summary>
-    /// MonoBehaviour base for all OpenIK solvers (<see cref="FABRIKSolver"/>,
-    /// <see cref="CCDIKSolver"/>, <see cref="JacobianIKSolver"/>).
+    /// MonoBehaviour base for all OpenIK solvers (<see cref="FABRIKSolver"/>, <see cref="CCDIKSolver"/>, <see cref="JacobianIKSolver"/>).
     /// Owns the <see cref="SolveMode"/> toggle, the reusable <see cref="IKSolverOutput"/> buffer,
     /// the <see cref="Solved"/> event, and the shared <see cref="IKPoseApplier"/> that writes the solved
     /// pose to the scene, so consumers can use any solver as a chain pose generator.
@@ -17,8 +16,8 @@ namespace OpenIK
                  "SolveOnly leaves the transforms untouched and exposes the result via LastOutput / the Solved event.")]
         [SerializeField] protected SolveMode mode = SolveMode.SolveAndApply;
 
-        [Tooltip("When joints with Limit Speed cannot all reach the solved pose this frame, slow them by one common factor so they arrive together. " +
-                 "The chain then moves as one coordinated motion instead of joint by joint. No joint exceeds its own speed.")]
+        [Tooltip("Coordinate speed-limited joints so they reach the solved pose together. Faster joints slow down to match " +
+                 "the slowest; each joint stays within its own speed limit.")]
         [SerializeField] protected bool synchronizeLimitedJoints;
 
         protected readonly IKSolverOutput _output = new IKSolverOutput();
@@ -52,7 +51,9 @@ namespace OpenIK
 
         /// <summary>
         /// When true, speed-limited joints that cannot all reach the solved pose in one step are slowed
-        /// by a common factor so they arrive together (read/write).
+        /// by a common factor so they arrive together (read/write). Used in
+        /// <see cref="SolveMode.SolveAndApply"/>; in <see cref="SolveMode.SolveOnly"/>, the caller of
+        /// <see cref="ApplyLastOutput"/> chooses instead.
         /// </summary>
         public bool SynchronizeLimitedJoints
         {
@@ -103,8 +104,13 @@ namespace OpenIK
         /// applies every solve, so this call does nothing.
         /// </summary>
         /// <param name="deltaTime">Elapsed time for the speed budget, chosen by the caller.</param>
+        /// <param name="synchronizeLimitedJoints">
+        /// When true, slow the limited joints by a common factor so they arrive together. The solver's
+        /// own <see cref="SynchronizeLimitedJoints"/> setting is not used here; the caller of this method
+        /// decides.
+        /// </param>
         /// <returns>The resulting status, which also becomes <see cref="ApplicationStatus"/>.</returns>
-        public IKApplicationStatus ApplyLastOutput(float deltaTime)
+        public IKApplicationStatus ApplyLastOutput(float deltaTime, bool synchronizeLimitedJoints = false)
         {
             if (mode == SolveMode.SolveAndApply)
             {
@@ -123,6 +129,7 @@ namespace OpenIK
             if (!_output.MatchesChain(chain))
                 return IKApplicationStatus.NotApplied;
 
+            // Use the argument, not the solver's Synchronize setting. The caller of this method decides.
             SetApplicationStatus(_applier.Apply(_output, chain, deltaTime, synchronizeLimitedJoints));
             return _applicationStatus;
         }

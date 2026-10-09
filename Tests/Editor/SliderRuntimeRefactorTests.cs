@@ -318,6 +318,41 @@ namespace OpenIK.Editor.Tests
             Assert.That(((SliderSegmentConstraint)solverChain.Joints[1].Segment).MaxReach, Is.EqualTo(3f).Within(Epsilon));
         }
 
+        [Test]
+        public void RestPoseOffset_KeepsRestPositionAnchoredToIKParent()
+        {
+            using var chain = CreateSliderChain(jointIsEnabled: true);
+            Transform parent = chain.ChainJoints[0];
+            Transform child = chain.ChainJoints[1];
+            // Deliberately skip the Unity parent in the IK chain, with a scaled hierarchy.
+            child.SetParent(parent.parent, true);
+            parent.parent.localScale = Vector3.one * 2f;
+            parent.rotation = Quaternion.Euler(15f, 35f, 20f);
+            child.rotation = Quaternion.Euler(40f, 10f, 60f);
+            Vector3 restPosition = child.position;
+
+            var solverChain = new SolverChain();
+            solverChain.Initialize(chain.ChainJoints);
+            Assert.That(chain.SliderJoint.IKParentTransform, Is.SameAs(parent));
+
+            // Sliding the joint must not move its rest position.
+            child.position += child.rotation * Vector3.up * 0.75f;
+            AssertVector3(restPosition, PlayModeBasePosition(chain.SliderJoint));
+
+            // Moving the IK parent carries the rest position with it.
+            Quaternion delta = Quaternion.Euler(20f, -50f, 30f);
+            Vector3 previousParentPosition = parent.position;
+            parent.position += new Vector3(3f, -2f, 5f);
+            parent.rotation = delta * parent.rotation;
+            AssertVector3(parent.position + delta * (restPosition - previousParentPosition), PlayModeBasePosition(chain.SliderJoint));
+        }
+
+        /// What GetConstraintBasePosition returns in Play mode. EditMode tests always take its edit-time branch.
+        private static Vector3 PlayModeBasePosition(ConstrainedJoint joint)
+        {
+            return joint.IKParentTransform.position + joint.IKParentTransform.rotation * joint.RestPoseOffset;
+        }
+
         private static SliderChainFixture CreateSliderChain(bool jointIsEnabled)
         {
             var solverRoot = new GameObject("SolverRoot");

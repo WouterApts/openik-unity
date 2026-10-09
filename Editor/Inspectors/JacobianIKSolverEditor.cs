@@ -4,27 +4,11 @@ using UnityEngine;
 namespace OpenIK.Editor
 {
     [CustomEditor(typeof(JacobianIKSolver))]
-    public class JacobianIKSolverEditor : UnityEditor.Editor
+    public class JacobianIKSolverEditor : OpenIKSolverEditor
     {
-        public override void OnInspectorGUI()
+        protected override GUIContent GetLabel(SerializedProperty property)
         {
-            serializedObject.Update();
-
-            SerializedProperty prop = serializedObject.GetIterator();
-            prop.NextVisible(true); // skip script reference
-            while (prop.NextVisible(false))
-            {
-                if (prop.name == "boneGizmoMode")
-                    continue;
-
-                EditorGUILayout.PropertyField(prop, new GUIContent(prop.displayName, GetTooltip(prop)), true);
-            }
-
-            EditorGUILayout.Space();
-            SerializedProperty boneGizmoMode = serializedObject.FindProperty("boneGizmoMode");
-            EditorGUILayout.PropertyField(boneGizmoMode, new GUIContent(boneGizmoMode.displayName, GetTooltip(boneGizmoMode)));
-
-            serializedObject.ApplyModifiedProperties();
+            return new GUIContent(property.displayName, GetTooltip(property));
         }
 
         private static string GetTooltip(SerializedProperty property)
@@ -33,8 +17,6 @@ namespace OpenIK.Editor
             {
                 case "mode":
                     return "Solve And Apply moves the joints toward the solved pose, respecting joint speed limits. Solve Only calculates the pose for use by scripts without moving the joints automatically.";
-                case "synchronizeLimitedJoints":
-                    return "Coordinate speed-limited joints so they reach the solved pose together. Faster joints slow down to match the slowest; each joint stays within its own speed limit.";
                 case "target":
                     return "Transform the end effector moves toward.";
                 case "tolerance":

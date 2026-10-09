@@ -288,7 +288,7 @@ namespace OpenIK.Showcase
             {
                 _hasValidTarget = true;
 
-                bool isPainting = Input.GetMouseButton(0);
+                bool isPainting = SampleInput.GetMouseButton(0);
                 float contactOffset = isPainting ? paintDistance : hoverDistance;
 
                 _desiredPosition = hit.point + (-canvas.forward) * contactOffset;
@@ -530,7 +530,7 @@ namespace OpenIK.Showcase
 
         private Ray BuildMouseRay()
         {
-            return mainCamera.ScreenPointToRay(Input.mousePosition);
+            return mainCamera.ScreenPointToRay(SampleInput.mousePosition);
         }
 
         private bool IsBrushInContact()
@@ -558,7 +558,7 @@ namespace OpenIK.Showcase
 
         private void CheckResetInput()
         {
-            if (!IsDemoControlled && Input.GetKeyDown(KeyCode.R))
+            if (!IsDemoControlled && SampleInput.GetKeyDown(KeyCode.R))
                 canvasPainter?.Clear();
         }
 

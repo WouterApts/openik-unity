@@ -231,8 +231,9 @@ namespace OpenIK
         /// </summary>
         /// <remarks>
         /// Offsets are in the IK parent's rotation frame in world units, so travel is measured in
-        /// metres under the uniform scale captured at initialization. Does not modify the segment's
-        /// runtime solver state.
+        /// metres under the uniform scale captured at initialization. Only travel along the slide axis
+        /// spends the budget; a starting sideways displacement is removed immediately. Does not modify
+        /// the segment's runtime solver state.
         /// </remarks>
         public float GetMotionDistance(Vector3 currentLocalOffset, Vector3 desiredLocalOffset)
         {
@@ -467,7 +468,8 @@ namespace OpenIK
         /// <remarks>
         /// A restricted range always contains zero and lies within [-180, 180], so the direct
         /// angular path between two in-range angles never crosses the forbidden arc. Only a
-        /// full-turn hinge wraps, along the shortest path (+180 on an exact tie).
+        /// full-turn hinge wraps, along the shortest path (+180 on an exact tie). Only the hinge angle
+        /// spends the budget; starting off-axis rotation is removed immediately.
         /// </remarks>
         public float GetMotionDistance(Quaternion currentDeviation, Quaternion desiredDeviation)
         {
@@ -597,25 +599,31 @@ namespace OpenIK
             return clampedSwing * clampedTwist;
         }
 
+        /// <summary>
+        /// Degrees the joint turns along the path <see cref="StepDeviation"/> follows. Inside the
+        /// limits this is the length of the legal swing/twist path, which can be much longer than
+        /// the shortest rotation when the twist range forces the long way around.
+        /// </summary>
         public float GetMotionDistance(Quaternion currentDeviation, Quaternion desiredDeviation)
         {
-            return Quaternion.Angle(currentDeviation, desiredDeviation);
+            if (!IsWithinLimits(currentDeviation))
+                return Quaternion.Angle(currentDeviation, desiredDeviation);
+
+            return MeasureLegalPath(currentDeviation, desiredDeviation, out _, out _, out _, out _);
         }
 
-        /// Bisection steps used to find the furthest legal point within the angular budget.
-        private const int MotionSearchIterations = 14;
+        /// Times the step parameter is halved when the cone clamp pushes a step past its budget.
+        private const int ClampBudgetRetries = 8;
 
         /// <summary>
         /// Moves <paramref name="currentDeviation"/> toward <paramref name="desiredDeviation"/> by at
-        /// most <paramref name="maxDegrees"/> of total relative rotation while staying inside the
-        /// swing cone and twist range.
+        /// most <paramref name="maxDegrees"/> along the legal swing/twist path.
         /// </summary>
         /// <remarks>
-        /// Swing and twist advance together along a path whose swing is projected back into the
-        /// cone, so every point of the path is legal. A bounded bisection then picks the furthest
-        /// point on that path whose rotation from the current deviation fits the budget. A start
-        /// outside the limits has no legal path; it moves straight toward the target within the
-        /// budget and is reported.
+        /// Swing and twist change together at steady rates, so the joint turns at the same speed along
+        /// the whole path. A budget of <c>maxDegrees</c> covers <c>maxDegrees / pathLength</c> of the path.
+        /// If the swing would leave the cone partway, it is pulled back to the edge. A joint that starts
+        /// outside its limits moves straight toward the target instead, and the step reports it.
         /// </remarks>
         public JointMotionStep StepDeviation(
             Quaternion currentDeviation,
@@ -623,64 +631,112 @@ namespace OpenIK
             float maxDegrees,
             out Quaternion appliedDeviation)
         {
-            bool startedOutsideLimits = !IsWithinLimits(currentDeviation);
+            if (!IsWithinLimits(currentDeviation))
+            {
+                if (Quaternion.Angle(currentDeviation, desiredDeviation) <= maxDegrees)
+                {
+                    appliedDeviation = desiredDeviation;
+                    return new JointMotionStep(JointMotionStatus.Reached, true);
+                }
 
-            float remaining = Quaternion.Angle(currentDeviation, desiredDeviation);
-            if (remaining <= maxDegrees)
+                appliedDeviation = Quaternion.RotateTowards(currentDeviation, desiredDeviation, Mathf.Max(0f, maxDegrees));
+                return new JointMotionStep(JointMotionStatus.Limited, true);
+            }
+
+            float pathLength = MeasureLegalPath(
+                currentDeviation,
+                desiredDeviation,
+                out Quaternion currentSwing,
+                out Quaternion desiredSwing,
+                out float currentTwist,
+                out float twistDelta);
+
+            if (pathLength <= maxDegrees)
             {
                 appliedDeviation = desiredDeviation;
-                return new JointMotionStep(JointMotionStatus.Reached, startedOutsideLimits);
+                return new JointMotionStep(JointMotionStatus.Reached, false);
             }
 
             if (maxDegrees <= 0f)
             {
                 appliedDeviation = currentDeviation;
-                return new JointMotionStep(JointMotionStatus.Limited, startedOutsideLimits);
+                return new JointMotionStep(JointMotionStatus.Limited, false);
             }
 
-            if (startedOutsideLimits)
+            float t = maxDegrees / pathLength;
+            appliedDeviation = EvaluateLegalPath(currentSwing, desiredSwing, currentTwist, twistDelta, t);
+
+            // The unclamped path never exceeds the budget; only the cone clamp can, so back off if it did.
+            for (int i = 0; i < ClampBudgetRetries && Quaternion.Angle(currentDeviation, appliedDeviation) > maxDegrees + 1e-3f; i++)
             {
-                appliedDeviation = Quaternion.RotateTowards(currentDeviation, desiredDeviation, maxDegrees);
-                return new JointMotionStep(JointMotionStatus.Limited, true);
+                t *= 0.5f;
+                appliedDeviation = EvaluateLegalPath(currentSwing, desiredSwing, currentTwist, twistDelta, t);
             }
 
-            Quaternion currentSwing = BallSocketIKJoint.ExtractSwingAroundForwardVector(currentDeviation);
-            Quaternion desiredSwing = BallSocketIKJoint.ExtractSwingAroundForwardVector(desiredDeviation);
-            float currentTwist = GetTwistAngle(currentDeviation);
-            float desiredTwist = GetTwistAngle(desiredDeviation);
-            // A twist range below a full turn is one contiguous arc around zero, so the direct path stays legal.
-            float twistDelta = _config.TwistHalfAngle >= 180f
-                ? Mathf.DeltaAngle(currentTwist, desiredTwist)
-                : desiredTwist - currentTwist;
-
-            float lo = 0f;
-            float hi = 1f;
-            Quaternion best = currentDeviation;
-            for (int i = 0; i < MotionSearchIterations; i++)
-            {
-                float t = 0.5f * (lo + hi);
-                Quaternion swing = BallSocketIKJoint.ClampSwing(
-                    Quaternion.Slerp(currentSwing, desiredSwing, t),
-                    _config.SwingPitchHalfSin,
-                    _config.SwingYawHalfSin);
-                Quaternion candidate = swing * Quaternion.AngleAxis(currentTwist + twistDelta * t, Vector3.forward);
-
-                if (Quaternion.Angle(currentDeviation, candidate) <= maxDegrees)
-                {
-                    lo = t;
-                    best = candidate;
-                }
-                else
-                {
-                    hi = t;
-                }
-            }
-
-            appliedDeviation = best;
-            bool madeProgress = Quaternion.Angle(best, desiredDeviation) < remaining - 1e-4f;
+            bool madeProgress = MeasureLegalPath(appliedDeviation, desiredDeviation, out _, out _, out _, out _)
+                < pathLength - 1e-4f;
             return new JointMotionStep(
                 madeProgress ? JointMotionStatus.Limited : JointMotionStatus.Blocked,
                 false);
+        }
+
+        /// <summary>
+        /// Splits both deviations into swing and twist and returns the length in degrees of the legal
+        /// path between them: swing slerps, twist moves along its allowed arc.
+        /// </summary>
+        /// <remarks>
+        /// Swing and twist both change at a steady rate, so the joint turns at one constant speed from
+        /// start to end, and the path length equals that speed. The speed is the swing rotation (angle θs
+        /// around axis a) plus the twist rotation (Δτ around the twist axis f), added as vectors:
+        /// <c>|θs·a + Δτ·f|</c>.
+        /// </remarks>
+        private float MeasureLegalPath(
+            Quaternion currentDeviation,
+            Quaternion desiredDeviation,
+            out Quaternion currentSwing,
+            out Quaternion desiredSwing,
+            out float currentTwist,
+            out float twistDelta)
+        {
+            currentSwing = BallSocketIKJoint.ExtractSwingAroundForwardVector(currentDeviation);
+            desiredSwing = BallSocketIKJoint.ExtractSwingAroundForwardVector(desiredDeviation);
+            currentTwist = GetTwistAngle(currentDeviation);
+            float desiredTwist = GetTwistAngle(desiredDeviation);
+            // A full-turn twist range takes the short way. A smaller range cannot pass through ±180°,
+            // so the twist goes directly from one angle to the other.
+            twistDelta = _config.TwistHalfAngle >= 180f
+                ? Mathf.DeltaAngle(currentTwist, desiredTwist)
+                : desiredTwist - currentTwist;
+
+            // Slerp takes the shorter of the two quaternion arcs.
+            Quaternion relative = Quaternion.Inverse(currentSwing) * desiredSwing;
+            if (relative.w < 0f)
+                relative = new Quaternion(-relative.x, -relative.y, -relative.z, -relative.w);
+
+            Vector3 halfAxis = new Vector3(relative.x, relative.y, relative.z);
+            float sinHalf = halfAxis.magnitude;
+            Vector3 swingVelocity = Vector3.zero;
+            if (sinHalf > 1e-7f)
+            {
+                float swingDegrees = 2f * Mathf.Atan2(sinHalf, relative.w) * Mathf.Rad2Deg;
+                swingVelocity = halfAxis * (swingDegrees / sinHalf);
+            }
+
+            return (swingVelocity + Vector3.forward * twistDelta).magnitude;
+        }
+
+        private Quaternion EvaluateLegalPath(
+            Quaternion currentSwing,
+            Quaternion desiredSwing,
+            float currentTwist,
+            float twistDelta,
+            float t)
+        {
+            Quaternion swing = BallSocketIKJoint.ClampSwing(
+                Quaternion.Slerp(currentSwing, desiredSwing, t),
+                _config.SwingPitchHalfSin,
+                _config.SwingYawHalfSin);
+            return swing * Quaternion.AngleAxis(currentTwist + twistDelta * t, Vector3.forward);
         }
 
         private bool IsWithinLimits(Quaternion deviation)

@@ -13,14 +13,13 @@ namespace OpenIK.Editor
             if (!joint.jointIsEnabled) return;
 
             Vector3 pos = joint.transform.position;
+            Vector3 basePos = joint.GetConstraintBasePosition();
             Vector3 axisLocal = joint.slideAxis.sqrMagnitude > 1e-8f
                 ? joint.slideAxis.normalized
                 : Vector3.forward;
-            Vector3 axisWorld = joint.transform.rotation * axisLocal;
-            float minLength = Mathf.Min(joint.minLength, joint.maxLength);
-            float maxLength = Mathf.Max(joint.minLength, joint.maxLength);
-            Vector3 start = pos + axisWorld * minLength;
-            Vector3 end = pos + axisWorld * maxLength;
+            Vector3 axisWorld = joint.GetConstraintBaseRotation() * axisLocal;
+            Vector3 start = basePos + axisWorld * Mathf.Min(joint.minLength, joint.maxLength);
+            Vector3 end = basePos + axisWorld * Mathf.Max(joint.minLength, joint.maxLength);
 
             var prevZTest = Handles.zTest;
             Handles.zTest = CompareFunction.Always;

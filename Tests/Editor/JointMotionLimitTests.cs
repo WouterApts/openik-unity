@@ -146,6 +146,41 @@ namespace OpenIK.Editor.Tests
         }
 
         [Test]
+        public void HingeStep_RemovesOffAxisRotationImmediatelyAndReportsOutsideStart()
+        {
+            // Off-axis rotation is not a hinge degree of freedom, so removing it spends no budget.
+            var hinge = new HingeAngularConstraint(new HingeAngularConstraint.Config(Vector3.up, Quaternion.identity, -45f, 45f));
+            Quaternion current = Quaternion.AngleAxis(30f, Vector3.right) * Quaternion.AngleAxis(20f, Vector3.up);
+            float currentAngle = HingeIKJoint.ExtractHingeAngle(current, Vector3.up);
+
+            JointMotionStep step = hinge.StepDeviation(current, Quaternion.AngleAxis(40f, Vector3.up), 0f, out Quaternion applied);
+
+            // The hinge angle holds at zero budget, but the result lies on the hinge axis.
+            Assert.That(step.Status, Is.EqualTo(JointMotionStatus.Limited));
+            Assert.That(step.StartedOutsideLimits, Is.True);
+            Assert.That(Quaternion.Angle(Quaternion.AngleAxis(currentAngle, Vector3.up), applied), Is.LessThan(AngleEpsilon));
+        }
+
+        [Test]
+        public void SliderStep_RemovesSidewaysOffsetImmediatelyAndReportsOutsideStart()
+        {
+            // Sideways offset is not slider travel, so removing it spends no budget.
+            var slider = new SliderSegmentConstraint(
+                new ISegmentConstraint.SetupData(new Vector3(0.5f, 1f, 0f), 1.118f, Quaternion.identity, Quaternion.identity, true),
+                new SliderSegmentConstraint.Config(Vector3.up, 0f, 2f));
+
+            JointMotionStep step = slider.StepLocalOffset(
+                new Vector3(0.8f, 1f, 0f),
+                new Vector3(0.5f, 1f, 0f),
+                0f,
+                out Vector3 applied);
+
+            Assert.That(step.Status, Is.EqualTo(JointMotionStatus.Reached));
+            Assert.That(step.StartedOutsideLimits, Is.True);
+            AssertVector3(new Vector3(0.5f, 1f, 0f), applied);
+        }
+
+        [Test]
         public void BallSocketStep_StaysInsideConeAndTwistWithinBudget()
         {
             float pitchHalfSin = Mathf.Sin(Mathf.Deg2Rad * 50f * 0.5f);
@@ -186,6 +221,129 @@ namespace OpenIK.Editor.Tests
             }
 
             Assert.That(status, Is.EqualTo(JointMotionStatus.Reached));
+        }
+
+        [Test]
+        public void BallSocketStep_WideTwistRangeMeasuresAndFollowsAllowedArc()
+        {
+            // +160 to -160 with a +/-170 range must turn 320 degrees through zero, not 40 across the seam.
+            var ball = WideTwistBallSocket(170f);
+            Quaternion current = Quaternion.AngleAxis(160f, Vector3.forward);
+            Quaternion desired = Quaternion.AngleAxis(-160f, Vector3.forward);
+
+            Assert.That(ball.GetMotionDistance(current, desired), Is.EqualTo(320f).Within(0.01f));
+
+            JointMotionStep step = ball.StepDeviation(current, desired, 1f, out Quaternion applied);
+
+            Assert.That(step.Status, Is.EqualTo(JointMotionStatus.Limited), "Moving along the allowed arc is progress.");
+            Assert.That(step.StartedOutsideLimits, Is.False);
+            Assert.That(TwistAngle(applied), Is.EqualTo(159f).Within(0.01f));
+        }
+
+        [Test]
+        public void BallSocketStep_LargeBudgetDoesNotShortcutAcrossTwistSeam()
+        {
+            var ball = WideTwistBallSocket(170f);
+            Quaternion current = Quaternion.AngleAxis(160f, Vector3.forward);
+            Quaternion desired = Quaternion.AngleAxis(-160f, Vector3.forward);
+
+            JointMotionStep step = ball.StepDeviation(current, desired, 50f, out Quaternion applied);
+
+            Assert.That(step.Status, Is.EqualTo(JointMotionStatus.Limited));
+            Assert.That(TwistAngle(applied), Is.EqualTo(110f).Within(0.01f));
+        }
+
+        [Test]
+        public void BallSocketStep_FullTwistRangeTakesShortWayAcrossSeam()
+        {
+            var ball = WideTwistBallSocket(180f);
+            Quaternion current = Quaternion.AngleAxis(160f, Vector3.forward);
+            Quaternion desired = Quaternion.AngleAxis(-160f, Vector3.forward);
+
+            Assert.That(ball.GetMotionDistance(current, desired), Is.EqualTo(40f).Within(0.01f));
+
+            ball.StepDeviation(current, desired, 10f, out Quaternion applied);
+
+            Assert.That(TwistAngle(applied), Is.EqualTo(170f).Within(0.01f));
+        }
+
+        [Test]
+        public void BallSocketStep_RepeatedStepsAcrossWideTwistRangeStayLegalAndConverge()
+        {
+            var ball = WideTwistBallSocket(170f);
+            Quaternion current = Quaternion.AngleAxis(160f, Vector3.forward);
+            Quaternion desired = Quaternion.AngleAxis(-160f, Vector3.forward);
+
+            int steps = 0;
+            JointMotionStatus status = JointMotionStatus.Limited;
+            while (status != JointMotionStatus.Reached && steps < 100)
+            {
+                status = ball.StepDeviation(current, desired, 5f, out Quaternion applied).Status;
+                Assert.That(status, Is.Not.EqualTo(JointMotionStatus.Blocked), $"Step {steps} was reported as blocked.");
+                Assert.That(Mathf.Abs(TwistAngle(applied)), Is.LessThanOrEqualTo(170f + AngleEpsilon), $"Step {steps} left the twist range.");
+                Assert.That(PreciseAngle(current, applied), Is.LessThanOrEqualTo(5f + AngleEpsilon), $"Step {steps} exceeded its budget.");
+                current = applied;
+                steps++;
+            }
+
+            Assert.That(status, Is.EqualTo(JointMotionStatus.Reached));
+            Assert.That(steps, Is.InRange(64, 65), "320 degrees at 5 degrees per step.");
+        }
+
+        [Test]
+        public void BallSocketMotionDistance_IsTheLengthOfTheSwingTwistPath()
+        {
+            // Swing slerps while twist moves along its allowed arc. Sum the rotation between closely
+            // spaced points of that path and compare with the closed-form distance.
+            var ball = WideTwistBallSocket(150f);
+            var random = new System.Random(4321);
+
+            for (int sample = 0; sample < 100; sample++)
+            {
+                RandomLegalPose(random, 150f, out Quaternion currentSwing, out float currentTwist);
+                RandomLegalPose(random, 150f, out Quaternion desiredSwing, out float desiredTwist);
+                Quaternion current = currentSwing * Quaternion.AngleAxis(currentTwist, Vector3.forward);
+                Quaternion desired = desiredSwing * Quaternion.AngleAxis(desiredTwist, Vector3.forward);
+
+                const int PathSamples = 1000;
+                float pathLength = 0f;
+                Quaternion previous = current;
+                for (int i = 1; i <= PathSamples; i++)
+                {
+                    float t = i / (float)PathSamples;
+                    Quaternion point = Quaternion.Slerp(currentSwing, desiredSwing, t)
+                        * Quaternion.AngleAxis(currentTwist + (desiredTwist - currentTwist) * t, Vector3.forward);
+                    pathLength += PreciseAngle(previous, point);
+                    previous = point;
+                }
+
+                Assert.That(ball.GetMotionDistance(current, desired), Is.EqualTo(pathLength).Within(0.1f), $"Sample {sample}");
+            }
+        }
+
+        [Test]
+        public void BallSocketStep_BudgetFractionCoversThatFractionOfThePath()
+        {
+            // Synchronization gives each joint the budget k * distance and relies on it covering exactly the fraction k.
+            var ball = WideTwistBallSocket(150f);
+            var random = new System.Random(8765);
+
+            for (int sample = 0; sample < 100; sample++)
+            {
+                RandomLegalPose(random, 150f, out Quaternion currentSwing, out float currentTwist);
+                RandomLegalPose(random, 150f, out Quaternion desiredSwing, out float desiredTwist);
+                Quaternion current = currentSwing * Quaternion.AngleAxis(currentTwist, Vector3.forward);
+                Quaternion desired = desiredSwing * Quaternion.AngleAxis(desiredTwist, Vector3.forward);
+                float distance = ball.GetMotionDistance(current, desired);
+                if (distance < 1f)
+                    continue;
+
+                JointMotionStep step = ball.StepDeviation(current, desired, 0.3f * distance, out Quaternion applied);
+
+                Assert.That(step.Status, Is.EqualTo(JointMotionStatus.Limited), $"Sample {sample}");
+                Assert.That(ball.GetMotionDistance(applied, desired), Is.EqualTo(0.7f * distance).Within(0.05f), $"Sample {sample} did not cover 30% of its path.");
+                Assert.That(PreciseAngle(current, applied), Is.LessThanOrEqualTo(0.3f * distance + 0.01f), $"Sample {sample} exceeded its budget.");
+            }
         }
 
         // ---------------------------------------------------------------------------------------
@@ -280,6 +438,24 @@ namespace OpenIK.Editor.Tests
         [Test]
         public void SynchronizedJoints_CoverTheSameFractionWithinTheirOwnCaps()
         {
+            float[] fractions = ApplyOneLimitedStep(solverSetting: false, synchronizeArgument: true);
+
+            Assert.That(fractions[1], Is.EqualTo(fractions[0]).Within(0.01f), "Synchronized joints should progress together.");
+        }
+
+        [Test]
+        public void ApplyLastOutput_UsesItsArgumentNotTheSolverSetting()
+        {
+            // In SolveOnly the caller of ApplyLastOutput decides; the solver setting only drives SolveAndApply.
+            float[] fractions = ApplyOneLimitedStep(solverSetting: true, synchronizeArgument: false);
+
+            Assert.That(fractions[1], Is.GreaterThan(fractions[0] + 0.05f), "Without the argument, each joint should use its own speed.");
+        }
+
+        /// Solves a slow-root, fast-tip arm in SolveOnly, applies one 0.1 s step, and returns the
+        /// fraction of its remaining travel each joint covered.
+        private static float[] ApplyOneLimitedStep(bool solverSetting, bool synchronizeArgument)
+        {
             using var arm = PlanarArm.Create(SolverKind.CCD);
             arm.Hinges[0].limitSpeed = true;
             arm.Hinges[0].maxAngularSpeed = 30f;
@@ -287,7 +463,7 @@ namespace OpenIK.Editor.Tests
             arm.Hinges[1].maxAngularSpeed = 300f;
             arm.Initialize();
             arm.Solver.Mode = SolveMode.SolveOnly;
-            arm.Solver.SynchronizeLimitedJoints = true;
+            arm.Solver.SynchronizeLimitedJoints = solverSetting;
 
             Quaternion[] before = arm.LocalRotations();
             arm.Solve();
@@ -297,7 +473,7 @@ namespace OpenIK.Editor.Tests
                 Quaternion.Inverse(arm.Joints[0].parent.rotation) * output.WorldRotations[0],
                 Quaternion.Inverse(output.WorldRotations[0]) * output.WorldRotations[1]
             };
-            IKApplicationStatus status = arm.Solver.ApplyLastOutput(0.1f);
+            IKApplicationStatus status = arm.Solver.ApplyLastOutput(0.1f, synchronizeArgument);
             Quaternion[] after = arm.LocalRotations();
 
             Assert.That(status.AnyJointLimited, Is.True);
@@ -311,7 +487,7 @@ namespace OpenIK.Editor.Tests
                 fractions[i] = moved / remaining;
             }
 
-            Assert.That(fractions[1], Is.EqualTo(fractions[0]).Within(0.01f), "Synchronized joints should progress together.");
+            return fractions;
         }
 
         [Test]
@@ -682,6 +858,36 @@ namespace OpenIK.Editor.Tests
                 (float)random.NextDouble() * 360f - 180f,
                 (float)random.NextDouble() * 360f - 180f,
                 (float)random.NextDouble() * 360f - 180f);
+        }
+
+        /// Ball socket with a 120-degree swing cone and the given twist half-angle.
+        private static BallSocketAngularConstraint WideTwistBallSocket(float twistHalfAngle)
+        {
+            float halfSin = Mathf.Sin(Mathf.Deg2Rad * 120f * 0.5f);
+            return new BallSocketAngularConstraint(new BallSocketAngularConstraint.Config(Quaternion.identity, halfSin, halfSin, twistHalfAngle));
+        }
+
+        /// A swing well inside a 120-degree cone, so the slerp between two of them never needs clamping, and a legal twist.
+        private static void RandomLegalPose(System.Random random, float twistHalfAngle, out Quaternion swing, out float twist)
+        {
+            float radius = 0.45f * Mathf.Sqrt((float)random.NextDouble());
+            float angle = (float)random.NextDouble() * 2f * Mathf.PI;
+            float x = radius * Mathf.Cos(angle), y = radius * Mathf.Sin(angle);
+            swing = new Quaternion(x, y, 0f, Mathf.Sqrt(1f - x * x - y * y));
+            twist = ((float)random.NextDouble() * 2f - 1f) * twistHalfAngle;
+        }
+
+        private static float TwistAngle(Quaternion deviation)
+        {
+            return Mathf.DeltaAngle(0f, 2f * Mathf.Atan2(deviation.z, deviation.w) * Mathf.Rad2Deg);
+        }
+
+        /// Rotation angle between two orientations, accurate for small angles unlike Quaternion.Angle.
+        private static float PreciseAngle(Quaternion a, Quaternion b)
+        {
+            Quaternion relative = Quaternion.Inverse(a) * b;
+            float sinHalf = new Vector3(relative.x, relative.y, relative.z).magnitude;
+            return 2f * Mathf.Atan2(sinHalf, Mathf.Abs(relative.w)) * Mathf.Rad2Deg;
         }
 
         private static void SetPrivateField(object instance, string fieldName, object value)

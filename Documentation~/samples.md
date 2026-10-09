@@ -1,51 +1,51 @@
 # Samples
 
-Use a Unity 6 URP project. The sample materials need URP; the core solvers do not.
+Use a Unity 6 URP project. The sample materials need URP. (OpenIK itself does not.)
 Set Color Space to Linear in Project Settings > Player > Other Settings to match
-the sample colours and lighting.
+the sample colors and lighting.
 
 ## Import
 
 1. Select OpenIK in Package Manager and open Samples.
 2. Import Shared Assets first, then the scene samples you want.
-3. In Project Settings > Player > Other Settings, set Active Input Handling to
-   Input Manager (Old) or Both. Restart Unity if prompted.
-4. Open a scene under `Assets/Samples/OpenIK/0.1.0/` and press Play.
+3. Open a scene under `Assets/Samples/OpenIK/0.2.0/` and press Play.
+4. Select Display 1 and click the Game view to give keyboard/mouse controls focus.
 
-Controls use `Horizontal`, `Vertical`, `Mouse X`, and `Mouse Y` from the legacy
-Input Manager. Use Display 1 in the Game view; Robotic Arm and Spider Walker have
-recording cameras on Display 2.
+The samples work with any Active Input Handling setting (**Input Manager (Old)**,
+**Input System Package (New)**, or **Both**), so keep your project's setting. They use
+keyboard and mouse and need no input actions or Input Manager axes.
+
+Robotic Painter and Spider Walker show their controls in the Game view. Display 2
+is reserved for recording cameras.
 
 ## Shared Assets
 
-Shared Assets contains models, materials, textures, terrain, a volume profile,
-and the shared camera script. The FBX models do not require Blender. Keep `.meta`
-files and sample versions together to preserve shared references.
+Shared Assets contains models, materials, textures, terrain, a volume profile, and
+the shared camera and input scripts. The FBX models do not require Blender.
 
-## Basic Chain
+The scene samples refer to these assets, so import Shared Assets from the same OpenIK
+version and keep the `.meta` files. Without them, the scenes lose their references.
 
-`Human Arm.unity` has a FABRIK chain. `SampleScene 2.unity` has FABRIK and Jacobian
-constraint examples. Move targets in the Scene view during Play Mode.
+## Sample Chains
 
-## Robotic Arm
+`Human Arm.unity` has a FABRIK chain. `Basic Chains.unity` has FABRIK and Jacobian
+constraint examples. Move targets in the Scene view during Play mode.
 
-`IK Robotic Arm.unity` has a Jacobian painting arm and a CCD arm.
+## Robotic Painter
+
+`Robotic Painter.unity` has a Jacobian painting arm and a CCD arm.
 
 - Hold the left mouse button over the canvas to paint. Click a bucket to pick up paint.
 - Hold the right mouse button to orbit; use the wheel to zoom.
 - Press R to clear the canvas during free painting.
 - Press P to run the portrait demo, or Escape to stop it.
 
-Pickup uses synchronized speed limits: slower base and shoulder, faster wrist.
-Tune each hinge under Motion. Free painting disables limits unless you enable
-Limit Speed While Painting on `PaintingTargetController`.
-
-The brush travels through a point above the bucket into the paint, then returns
-to idle. Each trip is continuous and waits for the brush to arrive. Color changes
-after a confirmed dip; failed pickups retreat above the bucket to idle. A slight
-brush tilt avoids lining up the wrist and base axes.
+Picking up paint from the buckets shows off the **synchronized speed limits** feature: slower base and shoulder, faster wrist.
 
 ## Spider Walker
 
-`IK Spider.unity` uses four FABRIK chains for procedural leg stepping. W/S or
-up/down move; A/D or left/right turn. Hold the right mouse button to look around.
+`IK Spider.unity` uses four FABRIK chains for procedural leg stepping. Press W/S or
+the Up/Down arrows to move, and A/D or the Left/Right arrows to turn. Hold the right
+mouse button to look around.
+
+Try changing the leg joints and the spider's step, gait, and movement settings in the Inspector.

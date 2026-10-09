@@ -69,8 +69,7 @@ namespace OpenIK
         public readonly JointMotionStatus Status;
 
         /// <summary>
-        /// True when the joint's actual starting pose violated its constraint, for example after an
-        /// external teleport or a tightened range. The step still moves by at most the speed budget.
+        /// True when the joint's actual starting pose violated its constraint.
         /// </summary>
         public readonly bool StartedOutsideLimits;
 
@@ -93,12 +92,11 @@ namespace OpenIK
     {
         /// <summary>
         /// Angle in degrees the joint still has to travel from <paramref name="currentDeviation"/> to
-        /// <paramref name="desiredDeviation"/> along the path <see cref="StepDeviation"/> follows.
-        /// Used to slow several limited joints by a common factor so they arrive together.
+        /// <paramref name="desiredDeviation"/> along the path that <see cref="StepDeviation"/> follows.
         /// </summary>
         float GetMotionDistance(Quaternion currentDeviation, Quaternion desiredDeviation);
 
-        /// <param name="currentDeviation">The joint's actual deviation at the start of the step.</param>
+        /// <param name="currentDeviation">The joint's actual deviation from rest pose at the start of the step.</param>
         /// <param name="desiredDeviation">The solved deviation the joint is moving toward.</param>
         /// <param name="maxDegrees">Nonnegative angular budget for this step.</param>
         /// <param name="appliedDeviation">The deviation to apply this step.</param>
@@ -121,11 +119,11 @@ namespace OpenIK
     {
         /// <summary>
         /// Distance in metres the joint still has to travel from <paramref name="currentLocalOffset"/>
-        /// to <paramref name="desiredLocalOffset"/> along the path <see cref="StepLocalOffset"/> follows.
+        /// to <paramref name="desiredLocalOffset"/> along the path that <see cref="StepLocalOffset"/> follows.
         /// </summary>
         float GetMotionDistance(Vector3 currentLocalOffset, Vector3 desiredLocalOffset);
 
-        /// <param name="currentLocalOffset">The joint's actual offset at the start of the step.</param>
+        /// <param name="currentLocalOffset">The joint's actual offset from rest pose at the start of the step.</param>
         /// <param name="desiredLocalOffset">The solved offset the joint is moving toward.</param>
         /// <param name="maxDistance">Nonnegative distance budget for this step, in metres.</param>
         /// <param name="appliedLocalOffset">The offset to apply this step.</param>

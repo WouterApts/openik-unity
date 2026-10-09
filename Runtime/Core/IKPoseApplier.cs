@@ -26,8 +26,10 @@ namespace OpenIK
 
         /// <summary>
         /// True when at least one limited joint started outside its constraint, for example after an
-        /// external teleport or a tightened range. Such joints still move by at most their speed budget;
-        /// call <see cref="OpenIKSolverBase.SnapToSolution"/> to repair them immediately.
+        /// external teleport or a tightened range. Such joints still move toward the solved pose at their
+        /// normal speed. A hinge's off-axis rotation and a slider's sideways offset are removed at once,
+        /// because the joint cannot move in those directions. Call
+        /// <see cref="OpenIKSolverBase.SnapToSolution"/> to fix everything immediately.
         /// </summary>
         public bool AnyJointStartedOutsideLimits { get; }
 
@@ -88,22 +90,14 @@ namespace OpenIK
 
     /// <summary>
     /// Writes a solver's desired pose to the chain's transforms, moving speed-limited joints toward it
-    /// by at most their configured speed multiplied by the step's delta time.
+    /// using the configured maximum speed multiplied by the step's delta time.
     /// </summary>
     /// <remarks>
-    /// <para>
-    /// Without active speed limits this is exactly <see cref="IKSolverOutput.ApplyTo"/>. With them, each
-    /// joint's desired pose relative to its solved IK parent is compared with its actual pose relative to
-    /// its actual IK parent, stepped in joint coordinates by the joint's runtime constraint, and rebuilt
-    /// from root to tip on top of the parents' newly applied poses. Parent motion therefore never consumes
-    /// a child's speed budget, and unlimited joints take their desired relative pose immediately.
-    /// </para>
-    /// <para>
-    /// The actual pose is read from the transforms at the start of each call. Solvers only write
-    /// transforms here, so solving from the rest pose never replaces the actual pose used for the budget.
-    /// The applier keeps no motion state between calls, so mode switches, re-enabling, and external
-    /// pose edits cannot leave stale data behind.
-    /// </para>
+    /// Without speed limits this is the same as <see cref="IKSolverOutput.ApplyTo"/>. With them, each
+    /// limited joint turns or slides toward its solved pose by at most its speed times deltaTime.
+    /// Movement is measured relative to the joint's IK parent, so a joint carried along by its parent
+    /// spends none of its own budget. Joints are placed from root to tip on the parent's actual new pose.
+    /// The current pose is read from the transforms on every call; nothing is stored between calls.
     /// </remarks>
     public sealed class IKPoseApplier
     {
@@ -143,7 +137,10 @@ namespace OpenIK
         /// </summary>
         /// <param name="output">The desired pose. Must have been populated from <paramref name="chain"/>.</param>
         /// <param name="chain">The chain whose relationships, rest frames, and runtime constraints drive application.</param>
-        /// <param name="deltaTime">Elapsed time for the speed budget. Zero, negative, or NaN moves limited joints not at all.</param>
+        /// <param name="deltaTime">
+        /// Elapsed time for the speed budget. Zero, negative, or NaN gives a zero budget: limited joints
+        /// do not move, except that hinge off-axis rotation and slider sideways offset are still removed.
+        /// </param>
         /// <param name="synchronizeJoints">
         /// When a limited joint cannot reach its solved pose within its budget, slow every limited joint
         /// by the same factor so they all arrive together. No joint ever exceeds its own speed.

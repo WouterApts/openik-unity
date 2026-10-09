@@ -23,8 +23,8 @@ namespace OpenIK.Showcase
 
         private void Update()
         {
-            if (Input.GetKeyDown(KeyCode.P) && !IsRunning) Play();
-            if (Input.GetKeyDown(KeyCode.Escape)) Stop();
+            if (SampleInput.GetKeyDown(KeyCode.P) && !IsRunning) Play();
+            if (SampleInput.GetKeyDown(KeyCode.Escape)) Stop();
         }
 
         [ContextMenu("Play portrait demo")]
@@ -145,8 +145,8 @@ namespace OpenIK.Showcase
 
         private void OnGUI()
         {
-            GUILayout.BeginArea(new Rect(16, 16, 300, 118), GUI.skin.box);
-            GUILayout.Label("CAP & MUSTACHE · PAINTER DEMO");
+            GUILayout.BeginArea(new Rect(16, 16, 340, 166), GUI.skin.box);
+            GUILayout.Label("ROBOTIC PAINTER");
             GUILayout.Label(Status);
             if (IsRunning)
             {
@@ -157,7 +157,9 @@ namespace OpenIK.Showcase
                 if (GUILayout.Button("Draw portrait  [P]")) Play();
                 if (painter != null && painter.IsDemoControlled && GUILayout.Button("Free paint  [Esc]")) Stop();
             }
-            GUILayout.Label("Free paint: drag to draw · R to clear");
+            GUILayout.Label("Left drag: paint · Click a bucket: change color");
+            GUILayout.Label("Right drag: orbit · Scroll: zoom · R: clear");
+            GUILayout.Label("Click Game view to control");
             GUILayout.EndArea();
         }
     }

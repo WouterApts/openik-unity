@@ -19,8 +19,14 @@ namespace OpenIK
         /// The initial Joint's transform rotation in World frame
         public Quaternion InitialWorldRotation { get; private set; }
 
+        /// The initial Joint's transform position in World frame
+        public Vector3 InitialWorldPosition { get; private set; }
+
         /// The joint's initial world rotation expressed in the IK parent's initial rotation frame.
         public Quaternion RestPoseRotation { get; private set; }
+
+        /// The joint's initial offset from its IK parent, in world units, expressed in the IK parent's initial rotation frame.
+        public Vector3 RestPoseOffset { get; private set; }
 
         /// The IK parent transform, set by the solver during initialization.
         private Transform _ikParentTransform;
@@ -29,6 +35,7 @@ namespace OpenIK
         public void Initialize()
         {
             InitialWorldRotation = transform.rotation;
+            InitialWorldPosition = transform.position;
             UpdateConstraints();
         }
 
@@ -46,6 +53,13 @@ namespace OpenIK
             RestPoseRotation = Quaternion.Inverse(parentInitialRotation) * InitialWorldRotation;
         }
 
+        /// Saves the rest rotation and the rest offset from the IK parent.
+        public void ComputeRestPose(Vector3 parentInitialPosition, Quaternion parentInitialRotation)
+        {
+            ComputeRestPose(parentInitialRotation);
+            RestPoseOffset = Quaternion.Inverse(parentInitialRotation) * (InitialWorldPosition - parentInitialPosition);
+        }
+
         /// The local rotation that maps the transform's local forward vector to the joint's constraint-axis frame.
         /// Each joint type defines and implements its own constraint frame (hinge axis, swing cone center, etc.).
         public virtual Quaternion LocalConstraintAxisRotation => Quaternion.identity;
@@ -58,6 +72,16 @@ namespace OpenIK
             if (_ikParentTransform != null && Application.isPlaying)
                 return _ikParentTransform.rotation * RestPoseRotation;
             return transform.rotation;
+        }
+
+        /// Returns the world-space position of the joint's rest pose.
+        /// During play, this is derived from the parent's current pose + rest pose.
+        /// While editing, falls back to this joint's own position.
+        public Vector3 GetConstraintBasePosition()
+        {
+            if (_ikParentTransform != null && Application.isPlaying)
+                return _ikParentTransform.position + _ikParentTransform.rotation * RestPoseOffset;
+            return transform.position;
         }
 
         [Tooltip("Choose when to draw this joint's constraint gizmos.")]

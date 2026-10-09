@@ -1,0 +1,25 @@
+{
+  "name": "OpenIK.Samples.InputSystem",
+  "rootNamespace": "OpenIK.Showcase",
+  "references": [
+    "OpenIK.Samples.SharedAssets",
+    "Unity.InputSystem"
+  ],
+  "autoReferenced": true,
+  "defineConstraints": [
+    "ENABLE_INPUT_SYSTEM",
+    "OPENIK_SAMPLE_INPUT_SYSTEM"
+  ],
+  "versionDefines": [
+    {
+      "name": "com.unity.inputsystem",
+      "expression": "1.0.0",
+      "define": "OPENIK_SAMPLE_INPUT_SYSTEM"
+    },
+    {
+      "name": "com.unity.inputsystem",
+      "expression": "1.9.0",
+      "define": "OPENIK_SAMPLE_NORMALIZED_SCROLL"
+    }
+  ]
+}

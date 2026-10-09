@@ -72,7 +72,7 @@ namespace OpenIK
 
                 cj.IKParentTransform = parentTransform;
                 if (parentTransform != null)
-                    cj.ComputeRestPose(parentTransform.rotation);
+                    cj.ComputeRestPose(parentTransform.position, parentTransform.rotation);
             }
         }
 

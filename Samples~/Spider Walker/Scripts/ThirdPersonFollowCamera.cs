@@ -50,9 +50,10 @@ namespace OpenIK.Showcase
 
         private Vector2 ReadLookDelta()
         {
-            if (requireRightMouseToLook && !Input.GetMouseButton(1))
+            Vector2 delta = SampleInput.LookDelta;
+            if (requireRightMouseToLook && !SampleInput.GetMouseButton(1))
                 return Vector2.zero;
-            return new Vector2(Input.GetAxis("Mouse X"), Input.GetAxis("Mouse Y"));
+            return delta;
         }
 
         private void LateUpdate()

@@ -119,7 +119,19 @@ namespace OpenIK.Showcase
 
         private static Vector2 ReadMoveInput()
         {
-            return new Vector2(Input.GetAxisRaw("Horizontal"), Input.GetAxisRaw("Vertical"));
+            return SampleInput.Move;
+        }
+
+        private void OnGUI()
+        {
+            GUILayout.BeginArea(new Rect(16, 16, 340, 126), GUI.skin.box);
+            GUILayout.Label("SPIDER WALKER");
+            GUILayout.Label("W/S or Up/Down: move");
+            GUILayout.Label("A/D or Left/Right: turn");
+            GUILayout.Label("Right drag: look around");
+            GUILayout.Space(4f);
+            GUILayout.Label("Click Game view to control");
+            GUILayout.EndArea();
         }
 
         private void EnsureLegReferences()

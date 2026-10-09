@@ -38,15 +38,15 @@ namespace OpenIK.Showcase
 
         private void Update()
         {
-            if (Input.GetMouseButton(1))
+            Vector2 delta = SampleInput.LookDelta;
+            if (SampleInput.GetMouseButton(1))
             {
-                Vector2 delta = new Vector2(Input.GetAxis("Mouse X"), Input.GetAxis("Mouse Y"));
                 _yaw   += delta.x * mouseSensitivity;
                 _pitch -= delta.y * mouseSensitivity;
                 _pitch  = Mathf.Clamp(_pitch, minPitch, maxPitch);
             }
 
-            float scroll = Input.mouseScrollDelta.y;
+            float scroll = SampleInput.mouseScrollDelta.y;
             if (scroll != 0f)
                 distance = Mathf.Clamp(distance - scroll * zoomSensitivity, minDistance, maxDistance);
         }

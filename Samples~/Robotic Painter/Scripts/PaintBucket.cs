@@ -73,13 +73,13 @@ namespace OpenIK.Showcase
 
         private void Update()
         {
-            if (!Input.GetMouseButtonDown(0))
+            if (!SampleInput.GetMouseButtonDown(0))
                 return;
 
             if (painter == null || mainCamera == null || painter.IsDemoControlled)
                 return;
 
-            Ray ray = mainCamera.ScreenPointToRay(Input.mousePosition);
+            Ray ray = mainCamera.ScreenPointToRay(SampleInput.mousePosition);
 
             if (Physics.Raycast(ray, out RaycastHit hit, clickMaxDistance, bucketLayer) &&
                 (hit.collider.transform == transform || hit.collider.transform.IsChildOf(transform)))
