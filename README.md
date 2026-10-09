@@ -6,9 +6,8 @@
   </picture>
 </p>
 
-**OpenIK** is a free Unity package that provides components for building inverse
-kinematics chains with FABRIK, CCD, or Jacobian solvers and hinge, ball socket, and
-slider constraints.
+**OpenIK** is a free, open-source inverse kinematics package for Unity.
+It features FABRIK, CCD, and Jacobian solvers and supports constraints such as hinge, ball-and-socket, and slider limits.
 
 https://github.com/user-attachments/assets/124f04d5-e9f4-4067-ba43-f49f7a5b3c19
 
@@ -16,7 +15,7 @@ https://github.com/user-attachments/assets/124f04d5-e9f4-4067-ba43-f49f7a5b3c19
 
 - **Three solvers:** FABRIK and CCD for end-effector position. Damped least-squares
   Jacobian for position and orientation.
-- **Joint constraints:** hinge rotation limits, ball socket swing/twist limits,
+- **Joint constraints:** hinge rotation limits, ball-and-socket swing/twist limits,
   and slider travel limits.
 - **Joint speed limits:** cap how fast each joint moves by setting its angular or
   linear speed.
