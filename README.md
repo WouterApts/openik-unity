@@ -1,3 +1,11 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="Documentation~/images/openik-logo-white.svg">
+    <source media="(prefers-color-scheme: light)" srcset="Documentation~/images/openik-logo-dark.svg">
+    <img src="Documentation~/images/openik-logo-dark.svg" alt="OpenIK" width="360">
+  </picture>
+</p>
+
 # OpenIK
 
 OpenIK provides Unity components for building inverse kinematics chains with FABRIK,
