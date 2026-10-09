@@ -1,0 +1,21 @@
+{
+  "name": "OpenIK.Editor.Tests",
+  "rootNamespace": "OpenIK.Editor.Tests",
+  "references": [
+    "OpenIK.Runtime"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": false,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "optionalUnityReferences": [
+    "TestAssemblies"
+  ],
+  "noEngineReferences": false
+}

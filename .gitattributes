@@ -1,0 +1,16 @@
+* text=auto
+*.cs text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.asmdef text eol=lf
+*.meta text eol=lf
+*.unity text eol=lf
+*.mat text eol=lf
+*.terrainlayer text eol=lf
+*.fbx binary
+*.png binary
+*.meta whitespace=-blank-at-eol
+*.unity whitespace=-blank-at-eol
+*.mat whitespace=-blank-at-eol
+*.terrainlayer whitespace=-blank-at-eol
+*.asset whitespace=-blank-at-eol

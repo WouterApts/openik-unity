@@ -1,0 +1,18 @@
+{
+  "name": "OpenIK.Editor",
+  "rootNamespace": "OpenIK.Editor",
+  "references": [
+    "OpenIK.Runtime"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
+}

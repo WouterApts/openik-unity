@@ -1,0 +1,50 @@
+{
+  "name": "com.wouterapts.openik",
+  "version": "0.1.0",
+  "displayName": "OpenIK",
+  "description": "Inverse kinematics solvers and joint constraints for Unity.",
+  "unity": "6000.0",
+  "license": "MIT",
+  "author": {
+    "name": "Wouter Apts",
+    "url": "https://github.com/WouterApts"
+  },
+  "documentationUrl": "https://github.com/WouterApts/openik-unity/blob/main/Documentation~/getting-started.md",
+  "licensesUrl": "https://github.com/WouterApts/openik-unity/blob/main/LICENSE.md",
+  "dependencies": {
+    "com.unity.mathematics": "1.3.3"
+  },
+  "keywords": [
+    "ik",
+    "inverse kinematics",
+    "animation",
+    "procedural animation",
+    "fabrik",
+    "ccd",
+    "Jacobian",
+    "joint limits",
+    "constraints"
+  ],
+  "samples": [
+    {
+      "displayName": "Shared Assets",
+      "description": "Models, materials, textures, terrain, and shared scene assets used by the other OpenIK samples. Import this first; the scene samples reference these assets. Requires the Universal Render Pipeline (URP).",
+      "path": "Samples~/Shared Assets"
+    },
+    {
+      "displayName": "Basic Chain",
+      "description": "Basic OpenIK chain scenes and constraint playground setups. Requires the Shared Assets sample and the Universal Render Pipeline (URP).",
+      "path": "Samples~/Basic Chain"
+    },
+    {
+      "displayName": "Robotic Arm",
+      "description": "Robotic arm showcase using OpenIK solvers, constraints, paint buckets, and a canvas. Requires the Shared Assets sample and the Universal Render Pipeline (URP).",
+      "path": "Samples~/Robotic Arm"
+    },
+    {
+      "displayName": "Spider Walker",
+      "description": "Procedural spider leg placement sample using OpenIK chains and constraints. Requires the Shared Assets sample and the Universal Render Pipeline (URP).",
+      "path": "Samples~/Spider Walker"
+    }
+  ]
+}
