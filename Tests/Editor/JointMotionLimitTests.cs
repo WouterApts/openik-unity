@@ -268,7 +268,7 @@ namespace OpenIK.Editor.Tests
         }
 
         [Test]
-        public void BallSocketStep_RepeatedStepsAcrossWideTwistRangeStayLegalAndConverge()
+        public void BallSocketStep_RepeatedStepsAcrossWideTwistRangeStayAllowedAndConverge()
         {
             var ball = WideTwistBallSocket(170f);
             Quaternion current = Quaternion.AngleAxis(160f, Vector3.forward);
@@ -300,8 +300,8 @@ namespace OpenIK.Editor.Tests
 
             for (int sample = 0; sample < 100; sample++)
             {
-                RandomLegalPose(random, 150f, out Quaternion currentSwing, out float currentTwist);
-                RandomLegalPose(random, 150f, out Quaternion desiredSwing, out float desiredTwist);
+                RandomAllowedPose(random, 150f, out Quaternion currentSwing, out float currentTwist);
+                RandomAllowedPose(random, 150f, out Quaternion desiredSwing, out float desiredTwist);
                 Quaternion current = currentSwing * Quaternion.AngleAxis(currentTwist, Vector3.forward);
                 Quaternion desired = desiredSwing * Quaternion.AngleAxis(desiredTwist, Vector3.forward);
 
@@ -330,8 +330,8 @@ namespace OpenIK.Editor.Tests
 
             for (int sample = 0; sample < 100; sample++)
             {
-                RandomLegalPose(random, 150f, out Quaternion currentSwing, out float currentTwist);
-                RandomLegalPose(random, 150f, out Quaternion desiredSwing, out float desiredTwist);
+                RandomAllowedPose(random, 150f, out Quaternion currentSwing, out float currentTwist);
+                RandomAllowedPose(random, 150f, out Quaternion desiredSwing, out float desiredTwist);
                 Quaternion current = currentSwing * Quaternion.AngleAxis(currentTwist, Vector3.forward);
                 Quaternion desired = desiredSwing * Quaternion.AngleAxis(desiredTwist, Vector3.forward);
                 float distance = ball.GetMotionDistance(current, desired);
@@ -358,12 +358,12 @@ namespace OpenIK.Editor.Tests
             using var arm = PlanarArm.Create(kind);
             arm.Initialize();
 
-            arm.Solver.Mode = SolveMode.SolveOnly;
+            arm.Solver.ApplyMode = ApplyMode.Manual;
             arm.Solve();
             IKSolverOutput output = arm.Solver.LastOutput;
             var expectedRotations = new List<Quaternion>(output.WorldRotations);
 
-            IKApplicationStatus status = arm.Solver.ApplyLastOutput(0.1f);
+            IKApplicationStatus status = arm.Solver.Apply(0.1f);
 
             Assert.That(status.Applied, Is.True);
             Assert.That(status.UsedSpeedLimits, Is.False);
@@ -385,7 +385,7 @@ namespace OpenIK.Editor.Tests
             arm.SetMaxIterations(iterations);
             arm.LimitAll(90f);
             arm.Initialize();
-            arm.Solver.Mode = SolveMode.SolveOnly;
+            arm.Solver.ApplyMode = ApplyMode.Manual;
 
             const float dt = 0.1f;
             float cap = 90f * dt;
@@ -394,7 +394,7 @@ namespace OpenIK.Editor.Tests
             {
                 Quaternion[] before = arm.LocalRotations();
                 arm.Solve();
-                IKApplicationStatus status = arm.Solver.ApplyLastOutput(dt);
+                IKApplicationStatus status = arm.Solver.Apply(dt);
                 Quaternion[] after = arm.LocalRotations();
 
                 Assert.That(status.UsedSpeedLimits, Is.True);
@@ -414,14 +414,14 @@ namespace OpenIK.Editor.Tests
             using var arm = PlanarArm.Create(kind);
             arm.LimitAll(120f);
             arm.Initialize();
-            arm.Solver.Mode = SolveMode.SolveOnly;
+            arm.Solver.ApplyMode = ApplyMode.Manual;
 
             IKApplicationStatus status = default;
             var history = new System.Text.StringBuilder();
             for (int step = 0; step < 300 && !(status.ReachedSolution && status.PositionError < 0.005f); step++)
             {
                 arm.Solve();
-                status = arm.Solver.ApplyLastOutput(0.05f);
+                status = arm.Solver.Apply(0.05f);
                 if (step < 12 || step % 20 == 0)
                 {
                     IKSolverOutput o = arm.Solver.LastOutput;
@@ -438,23 +438,22 @@ namespace OpenIK.Editor.Tests
         [Test]
         public void SynchronizedJoints_CoverTheSameFractionWithinTheirOwnCaps()
         {
-            float[] fractions = ApplyOneLimitedStep(solverSetting: false, synchronizeArgument: true);
+            float[] fractions = ApplyOneLimitedStep(synchronize: true);
 
             Assert.That(fractions[1], Is.EqualTo(fractions[0]).Within(0.01f), "Synchronized joints should progress together.");
         }
 
         [Test]
-        public void ApplyLastOutput_UsesItsArgumentNotTheSolverSetting()
+        public void UnsynchronizedJoints_EachMoveAtTheirOwnSpeed()
         {
-            // In SolveOnly the caller of ApplyLastOutput decides; the solver setting only drives SolveAndApply.
-            float[] fractions = ApplyOneLimitedStep(solverSetting: true, synchronizeArgument: false);
+            float[] fractions = ApplyOneLimitedStep(synchronize: false);
 
-            Assert.That(fractions[1], Is.GreaterThan(fractions[0] + 0.05f), "Without the argument, each joint should use its own speed.");
+            Assert.That(fractions[1], Is.GreaterThan(fractions[0] + 0.05f), "Without synchronization, each joint should use its own speed.");
         }
 
-        /// Solves a slow-root, fast-tip arm in SolveOnly, applies one 0.1 s step, and returns the
-        /// fraction of its remaining travel each joint covered.
-        private static float[] ApplyOneLimitedStep(bool solverSetting, bool synchronizeArgument)
+        /// Solves a slow-root, fast-tip arm, applies one 0.1 s step, and returns the fraction of its
+        /// remaining travel each joint covered.
+        private static float[] ApplyOneLimitedStep(bool synchronize)
         {
             using var arm = PlanarArm.Create(SolverKind.CCD);
             arm.Hinges[0].limitSpeed = true;
@@ -462,8 +461,8 @@ namespace OpenIK.Editor.Tests
             arm.Hinges[1].limitSpeed = true;
             arm.Hinges[1].maxAngularSpeed = 300f;
             arm.Initialize();
-            arm.Solver.Mode = SolveMode.SolveOnly;
-            arm.Solver.SynchronizeLimitedJoints = solverSetting;
+            arm.Solver.ApplyMode = ApplyMode.Manual;
+            arm.Solver.SynchronizeLimitedJoints = synchronize;
 
             Quaternion[] before = arm.LocalRotations();
             arm.Solve();
@@ -473,7 +472,7 @@ namespace OpenIK.Editor.Tests
                 Quaternion.Inverse(arm.Joints[0].parent.rotation) * output.WorldRotations[0],
                 Quaternion.Inverse(output.WorldRotations[0]) * output.WorldRotations[1]
             };
-            IKApplicationStatus status = arm.Solver.ApplyLastOutput(0.1f, synchronizeArgument);
+            IKApplicationStatus status = arm.Solver.Apply(0.1f);
             Quaternion[] after = arm.LocalRotations();
 
             Assert.That(status.AnyJointLimited, Is.True);
@@ -496,10 +495,10 @@ namespace OpenIK.Editor.Tests
             using var arm = PlanarArm.Create(SolverKind.Jacobian);
             arm.LimitAll(30f);
             arm.Initialize();
-            arm.Solver.Mode = SolveMode.SolveOnly;
+            arm.Solver.ApplyMode = ApplyMode.Manual;
 
             arm.Solve();
-            Assert.That(arm.Solver.ApplyLastOutput(0.05f).AnyJointLimited, Is.True);
+            Assert.That(arm.Solver.Apply(0.05f).AnyJointLimited, Is.True);
 
             // Externally driven root motion while the arm still lags its previous solution.
             arm.Joints[0].parent.SetPositionAndRotation(new Vector3(3f, 0f, 0f), Quaternion.Euler(0f, 40f, 0f));
@@ -516,11 +515,11 @@ namespace OpenIK.Editor.Tests
             using var arm = PlanarArm.Create(SolverKind.CCD);
             arm.LimitAll(90f);
             arm.Initialize();
-            arm.Solver.Mode = SolveMode.SolveOnly;
+            arm.Solver.ApplyMode = ApplyMode.Manual;
 
             Quaternion[] before = arm.LocalRotations();
             arm.Solve();
-            IKApplicationStatus status = arm.Solver.ApplyLastOutput(0f);
+            IKApplicationStatus status = arm.Solver.Apply(0f);
             Quaternion[] after = arm.LocalRotations();
 
             Assert.That(status.AnyJointLimited, Is.True);
@@ -535,12 +534,12 @@ namespace OpenIK.Editor.Tests
             arm.Hinges[0].limitSpeed = true;
             arm.Hinges[0].maxAngularSpeed = 10f;
             arm.Initialize();
-            arm.Solver.Mode = SolveMode.SolveOnly;
+            arm.Solver.ApplyMode = ApplyMode.Manual;
 
             arm.Solve();
             IKSolverOutput output = arm.Solver.LastOutput;
             Quaternion desiredRelative = Quaternion.Inverse(output.WorldRotations[0]) * output.WorldRotations[1];
-            arm.Solver.ApplyLastOutput(0.1f);
+            arm.Solver.Apply(0.1f);
             Quaternion actualRelative = Quaternion.Inverse(arm.Joints[0].rotation) * arm.Joints[1].rotation;
 
             Assert.That(Quaternion.Angle(desiredRelative, actualRelative), Is.LessThan(0.01f));
@@ -554,13 +553,13 @@ namespace OpenIK.Editor.Tests
             using var arm = PlanarArm.Create(SolverKind.Jacobian, withIntermediateTransform: true);
             arm.LimitAll(45f);
             arm.Initialize();
-            arm.Solver.Mode = SolveMode.SolveOnly;
+            arm.Solver.ApplyMode = ApplyMode.Manual;
 
             for (int step = 0; step < 4; step++)
             {
                 Quaternion[] before = arm.LocalRotations();
                 arm.Solve();
-                arm.Solver.ApplyLastOutput(0.1f);
+                arm.Solver.Apply(0.1f);
                 Quaternion[] after = arm.LocalRotations();
                 for (int i = 0; i < 2; i++)
                     Assert.That(Quaternion.Angle(before[i], after[i]), Is.LessThanOrEqualTo(4.5f + AngleEpsilon));
@@ -573,28 +572,28 @@ namespace OpenIK.Editor.Tests
         public void RestPoseSolving_StillLimitsFromActualPose()
         {
             using var arm = PlanarArm.Create(SolverKind.CCD);
-            SetPrivateField(arm.Solver, "solveFromRestPose", true);
+            arm.Solver.SolveFromRestPose = true;
             arm.LimitAll(90f);
             arm.Initialize();
-            arm.Solver.Mode = SolveMode.SolveOnly;
+            arm.Solver.ApplyMode = ApplyMode.Manual;
 
             // Move the actual arm away from its rest pose before solving.
             arm.Joints[0].rotation = Quaternion.AngleAxis(-70f, Vector3.up);
             Quaternion[] before = arm.LocalRotations();
             arm.Solve();
-            arm.Solver.ApplyLastOutput(0.1f);
+            arm.Solver.Apply(0.1f);
             Quaternion[] after = arm.LocalRotations();
 
             Assert.That(Quaternion.Angle(before[0], after[0]), Is.LessThanOrEqualTo(9f + AngleEpsilon));
         }
 
         [Test]
-        public void SolveOnly_DoesNotWriteTransformsAutomatically()
+        public void ManualApply_DoesNotWriteTransforms()
         {
             using var arm = PlanarArm.Create(SolverKind.Jacobian);
             arm.LimitAll(90f);
             arm.Initialize();
-            arm.Solver.Mode = SolveMode.SolveOnly;
+            arm.Solver.ApplyMode = ApplyMode.Manual;
 
             Quaternion[] before = arm.LocalRotations();
             arm.Solve();
@@ -607,30 +606,74 @@ namespace OpenIK.Editor.Tests
         }
 
         [Test]
-        public void SolveAndApply_AppliesAndReportsStatusBeforeSolvedEvent()
+        public void AutomaticStep_FiresSolvedBeforeApplyingAndAppliedAfter()
         {
             using var arm = PlanarArm.Create(SolverKind.CCD);
             arm.LimitAll(90f);
             arm.Initialize();
 
-            bool applied = false;
-            arm.Solver.Solved += _ => applied = arm.Solver.ApplicationStatus.Applied;
-            arm.Solve();
+            var events = new List<string>();
+            arm.Solver.Solved += _ => events.Add($"Solved applied={arm.Solver.ApplicationStatus.Applied}");
+            arm.Solver.Applied += status => events.Add($"Applied applied={status.Applied} limited={status.UsedSpeedLimits}");
+            arm.Solver.Step(0.1f);
 
-            Assert.That(applied, Is.True);
-            Assert.That(arm.Solver.ApplicationStatus.UsedSpeedLimits, Is.True);
+            Assert.That(events, Is.EqualTo(new[] { "Solved applied=False", "Applied applied=True limited=True" }));
         }
 
         [Test]
-        public void ApplyLastOutput_IsIgnoredInSolveAndApplyMode()
+        public void ManualApplyStep_SolvesWithoutApplying()
+        {
+            using var arm = PlanarArm.Create(SolverKind.FABRIK);
+            arm.Initialize();
+            arm.Solver.ApplyMode = ApplyMode.Manual;
+
+            Quaternion[] before = arm.LocalRotations();
+            arm.Solver.Step(0.1f);
+
+            Assert.That(arm.Solver.LastOutput.JointCount, Is.EqualTo(3));
+            Assert.That(arm.Solver.ApplicationStatus.Applied, Is.False);
+            Quaternion[] after = arm.LocalRotations();
+            for (int i = 0; i < before.Length; i++)
+                Assert.That(after[i], Is.EqualTo(before[i]));
+        }
+
+        [Test]
+        public void ManualUpdateMode_SkipsLateUpdate()
+        {
+            using var arm = PlanarArm.Create(SolverKind.FABRIK);
+            arm.Initialize();
+            arm.Solver.UpdateMode = UpdateMode.Manual;
+
+            Quaternion[] before = arm.LocalRotations();
+            arm.LateUpdate();
+
+            Assert.That(arm.Solver.LastOutput.JointCount, Is.EqualTo(0), "LateUpdate should not solve in Manual update mode.");
+            Quaternion[] after = arm.LocalRotations();
+            for (int i = 0; i < before.Length; i++)
+                Assert.That(after[i], Is.EqualTo(before[i]));
+        }
+
+        [TestCase(SolverKind.CCD)]
+        [TestCase(SolverKind.FABRIK)]
+        [TestCase(SolverKind.Jacobian)]
+        public void Solve_InitializesTheSolverWhenAwakeHasNotRun(SolverKind kind)
+        {
+            using var arm = PlanarArm.Create(kind);
+
+            Assert.That(arm.Solver.Solve(), Is.True);
+            Assert.That(arm.Solver.LastOutput.JointCount, Is.EqualTo(3));
+            Assert.That(arm.Solver.Apply(0.1f).Applied, Is.True);
+        }
+
+        [Test]
+        public void Solve_ReturnsFalseWithoutTarget()
         {
             using var arm = PlanarArm.Create(SolverKind.CCD);
             arm.Initialize();
+            arm.Solver.Target = null;
 
-            LogAssert.Expect(LogType.Warning, new Regex("ApplyLastOutput is for SolveOnly mode"));
-            IKApplicationStatus status = arm.Solver.ApplyLastOutput(0.1f);
-
-            Assert.That(status.Applied, Is.False);
+            Assert.That(arm.Solver.Solve(), Is.False);
+            Assert.That(arm.Solver.LastOutput.JointCount, Is.EqualTo(0));
         }
 
         [Test]
@@ -639,7 +682,7 @@ namespace OpenIK.Editor.Tests
             using var arm = PlanarArm.Create(SolverKind.Jacobian);
             arm.LimitAll(1f);
             arm.Initialize();
-            arm.Solver.Mode = SolveMode.SolveOnly;
+            arm.Solver.ApplyMode = ApplyMode.Manual;
 
             Assert.That(arm.Solver.SnapToSolution(), Is.False, "No output exists before the first solve.");
 
@@ -660,10 +703,10 @@ namespace OpenIK.Editor.Tests
             arm.Hinges[0].jointIsEnabled = false;
             arm.Hinges[1].limitSpeed = false;
             arm.Initialize();
-            arm.Solver.Mode = SolveMode.SolveOnly;
+            arm.Solver.ApplyMode = ApplyMode.Manual;
 
             arm.Solve();
-            IKApplicationStatus status = arm.Solver.ApplyLastOutput(0.1f);
+            IKApplicationStatus status = arm.Solver.Apply(0.1f);
 
             Assert.That(status.UsedSpeedLimits, Is.False);
         }
@@ -672,13 +715,13 @@ namespace OpenIK.Editor.Tests
         public void StaticConfiguration_FreezesSpeedLimitSettings()
         {
             using var arm = PlanarArm.Create(SolverKind.CCD);
-            SetPrivateField(arm.Solver, "staticSolverConfiguration", true);
+            arm.Solver.StaticSolverConfiguration = true;
             arm.Initialize();
-            arm.Solver.Mode = SolveMode.SolveOnly;
+            arm.Solver.ApplyMode = ApplyMode.Manual;
 
             arm.LimitAll(1f);
             arm.Solve();
-            IKApplicationStatus status = arm.Solver.ApplyLastOutput(0.1f);
+            IKApplicationStatus status = arm.Solver.Apply(0.1f);
 
             Assert.That(status.UsedSpeedLimits, Is.False);
         }
@@ -689,19 +732,16 @@ namespace OpenIK.Editor.Tests
             using var arm = PlanarArm.Create(SolverKind.CCD);
             arm.Hinges[1].limitSpeed = true;
             arm.Initialize();
-            arm.Solver.Mode = SolveMode.SolveOnly;
+            arm.Solver.ApplyMode = ApplyMode.Manual;
             // Stand in for a custom joint type whose runtime constraint has no motion support. The
             // binding stays in place because the hinge only reconfigures HingeAngularConstraint instances.
-            var chain = (SolverChain)typeof(CCDIKSolver)
-                .GetField("_chain", BindingFlags.Instance | BindingFlags.NonPublic)
-                .GetValue(arm.Solver);
-            chain.Joints[1].Angular = new FreeAngularConstraint();
+            arm.Solver.Chain.Joints[1].Angular = new FreeAngularConstraint();
 
             LogAssert.Expect(LogType.Warning, new Regex("does not support speed limits"));
             arm.Solve();
-            IKApplicationStatus status = arm.Solver.ApplyLastOutput(0.1f);
+            IKApplicationStatus status = arm.Solver.Apply(0.1f);
             arm.Solve();
-            arm.Solver.ApplyLastOutput(0.1f);
+            arm.Solver.Apply(0.1f);
 
             Assert.That(status.UsedSpeedLimits, Is.False);
             LogAssert.NoUnexpectedReceived();
@@ -713,25 +753,25 @@ namespace OpenIK.Editor.Tests
             using var arm = PlanarArm.Create(SolverKind.Jacobian);
             arm.LimitAll(30f);
             arm.Initialize();
-            arm.Solver.Mode = SolveMode.SolveOnly;
+            arm.Solver.ApplyMode = ApplyMode.Manual;
             arm.Solve();
-            arm.Solver.ApplyLastOutput(0.01f);
+            arm.Solver.Apply(0.01f);
 
-            Assert.That(() => { arm.Solver.ApplyLastOutput(0.01f); },
+            Assert.That(() => { arm.Solver.Apply(0.01f); },
                 UnityEngine.TestTools.Constraints.ConstraintExtensions.AllocatingGCMemory(Is.Not));
         }
 
         [Test]
-        public void ApplyLastOutput_FailsAfterChainTransformIsDestroyed()
+        public void Apply_FailsAfterChainTransformIsDestroyed()
         {
             using var arm = PlanarArm.Create(SolverKind.CCD);
             arm.Initialize();
-            arm.Solver.Mode = SolveMode.SolveOnly;
+            arm.Solver.ApplyMode = ApplyMode.Manual;
             arm.Solve();
 
             Object.DestroyImmediate(arm.Joints[2].gameObject);
 
-            Assert.That(arm.Solver.ApplyLastOutput(0.1f).Applied, Is.False);
+            Assert.That(arm.Solver.Apply(0.1f).Applied, Is.False);
             Assert.That(arm.Solver.SnapToSolution(), Is.False);
         }
 
@@ -805,7 +845,7 @@ namespace OpenIK.Editor.Tests
                     SolverKind.FABRIK => _solverRoot.AddComponent<FABRIKSolver>(),
                     _ => _solverRoot.AddComponent<JacobianIKSolver>()
                 };
-                SetPrivateField(Solver, "target", _target.transform);
+                Solver.Target = _target.transform;
                 SetPrivateField(Solver, "chainJoints", new List<Transform>(Joints));
 
                 if (kind == SolverKind.Jacobian)
@@ -821,7 +861,7 @@ namespace OpenIK.Editor.Tests
                 return new PlanarArm(kind, withIntermediateTransform);
             }
 
-            public void SetMaxIterations(int iterations) => SetPrivateField(Solver, "maxIterations", iterations);
+            public void SetMaxIterations(int iterations) => Solver.MaxIterations = iterations;
 
             public void LimitAll(float maxAngularSpeed)
             {
@@ -834,7 +874,9 @@ namespace OpenIK.Editor.Tests
 
             public void Initialize() => InvokePrivate(Solver, "Awake");
 
-            public void Solve() => InvokePrivate(Solver, "LateUpdate");
+            public void Solve() => Solver.Solve();
+
+            public void LateUpdate() => InvokePrivate(Solver, "LateUpdate");
 
             /// Rotation of each chain joint relative to its IK parent.
             public Quaternion[] LocalRotations()
@@ -867,8 +909,8 @@ namespace OpenIK.Editor.Tests
             return new BallSocketAngularConstraint(new BallSocketAngularConstraint.Config(Quaternion.identity, halfSin, halfSin, twistHalfAngle));
         }
 
-        /// A swing well inside a 120-degree cone, so the slerp between two of them never needs clamping, and a legal twist.
-        private static void RandomLegalPose(System.Random random, float twistHalfAngle, out Quaternion swing, out float twist)
+        /// A swing well inside a 120-degree cone, so the slerp between two of them never needs clamping, and an allowed twist.
+        private static void RandomAllowedPose(System.Random random, float twistHalfAngle, out Quaternion swing, out float twist)
         {
             float radius = 0.45f * Mathf.Sqrt((float)random.NextDouble());
             float angle = (float)random.NextDouble() * 2f * Mathf.PI;
@@ -890,16 +932,21 @@ namespace OpenIK.Editor.Tests
             return 2f * Mathf.Atan2(sinHalf, Mathf.Abs(relative.w)) * Mathf.Rad2Deg;
         }
 
+        // Private members can be declared on a base class, so search the whole hierarchy.
         private static void SetPrivateField(object instance, string fieldName, object value)
         {
-            FieldInfo field = instance.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
+            FieldInfo field = null;
+            for (Type type = instance.GetType(); type != null && field == null; type = type.BaseType)
+                field = type.GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.DeclaredOnly);
             Assert.That(field, Is.Not.Null, $"Expected private field '{fieldName}' on {instance.GetType().Name}.");
             field.SetValue(instance, value);
         }
 
         private static void InvokePrivate(object instance, string methodName)
         {
-            MethodInfo method = instance.GetType().GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic);
+            MethodInfo method = null;
+            for (Type type = instance.GetType(); type != null && method == null; type = type.BaseType)
+                method = type.GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.DeclaredOnly);
             Assert.That(method, Is.Not.Null, $"Expected private method '{methodName}' on {instance.GetType().Name}.");
             method.Invoke(instance, null);
         }

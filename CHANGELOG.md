@@ -2,6 +2,67 @@
 
 This file lists the notable changes in each OpenIK release.
 
+## [0.3.0] - 2026-10-10
+
+### Breaking changes
+
+- `Solve()` computes `LastOutput` without writing transforms. `Apply(deltaTime)`
+  moves the transforms toward it, and `Step(deltaTime)` does both. Use `Apply` in
+  place of the removed `ApplyLastOutput`.
+
+- `ApplyMode` replaces `SolveMode`, and the `ApplyMode` property replaces `Mode`.
+  Solve And Apply is now **Automatic** and Solve Only is now **Manual**. Saved
+  scenes keep their setting.
+
+- `Apply` has no `synchronizeLimitedJoints` argument. It uses the solver's
+  Synchronize Limited Joints setting in both apply modes.
+
+- `Solved` fires between solving and applying. Read the result in the new `Applied` event.
+
+- Custom solvers override `SolveChain(in IKGoal goal)` and return a `SolveResult`.
+  `OpenIKSolverBase` handles setup, configuration refresh, the starting pose, the
+  output, and application.
+
+- The `Chain` and `SolveTarget` overrides, `ApplyAndRaiseSolved`, and
+  `SolverChain.SyncSolverStateFromLocalPose` no longer exist.
+
+### Added
+
+- `UpdateMode`: **LateUpdate** steps the solver every frame, and **Manual** leaves
+  it to your scripts. The solver Inspector shows Update Mode and Apply Mode in a
+  new Execution section.
+
+- The `Applied` event, and public properties for the shared solver settings:
+  `Target`, `ChainJoints`, `Tolerance`, `MaxIterations`, `SolveFromRestPose`,
+  `SynchronizeLimitedJoints`, `StaticSolverConfiguration`, and `Chain`.
+
+- Solve From Rest Pose for the Jacobian Solver.
+
+- `Solve()` initializes the solver when `Awake` has not run, for example in Edit mode.
+
+- `SolverPoseRegressionTests`, which compare solver output against a recorded baseline.
+
+### Changed
+
+- All solvers now report joints listed out of hierarchy order.
+
+- The Inspector shows Synchronize Limited Joints in both apply modes.
+
+- Improved Sample Chains: Basic Chains has six labeled chains: four FABRIK, one CCD, and
+  one Jacobian.
+
+### Fixed
+
+- Jacobian Solver: on long chains of ball socket or unconstrained joints, rotations
+  could drift from unit length. The arm then missed the target, or the solve
+  returned NaN. The solver now normalizes each rotation after it applies joint
+  limits.
+
+- Robotic Painter: the arm follows the mouse only over the canvas. Before, hovering
+  a paint bucket moved the arm to it, and clicking near the brush made the arm
+  jitter. The controller now raycasts against the canvas collider only. The Canvas
+  Layer setting is gone, and the sample no longer needs the `PaintCanvas` layer.
+
 ## [0.2.0] - 2026-10-09
 
 ### Breaking changes
@@ -66,5 +127,6 @@ This file lists the notable changes in each OpenIK release.
 
 First release! 
 
+[0.3.0]: https://github.com/WouterApts/openik-unity/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/WouterApts/openik-unity/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/WouterApts/openik-unity/releases/tag/v0.1.0

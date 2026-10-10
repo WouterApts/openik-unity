@@ -2,7 +2,8 @@
 
 ## Solvers
 
-All three solvers inherit `OpenIKSolverBase` and solve in `LateUpdate`.
+All three solvers inherit `OpenIKSolverBase`. By default they solve and apply the result every frame in `LateUpdate`.
+The **Execution** settings change when a solver runs and whether it moves the chain; see [Execution settings](#execution-settings).
 
 | Component | Method | Solves | Slider Translation |
 | --- | --- | --- | --- |
@@ -26,9 +27,18 @@ Jacobian's **Orientation Mode** determines whether it also tries to match the ta
 Increase **Damping** if the solve becomes unstable near difficult configurations, such as a straightened chain. Higher damping generally produces smaller corrections and may require more iterations. 
 Reducing **Step Size** also reduces each iteration's correction. These settings control numerical solving; use joint speed limits to control movement over time.
 
+FABRIK's **Use Singularity Handling** helps a fully straightened chain bend when the target lies on the chain's line.
+CCD's **Rotation Step** applies only part of each joint's rotation per step; lower values can make tightly constrained chains more stable.
+
+**Solve From Rest Pose** starts every solve from the rest pose captured at initialization instead of from the current pose.
+The result then depends on the target and the chain's root, not on the previous frame. The Spider Walker legs use this.
+
+**Static Solver Configuration** reads joint constraints and speed limits once, when the solver initializes, and skips refreshing them every frame.
+Turn it on for chains whose joint settings do not change during Play mode.
+
 ## Joint constraints
 
-Add joint constraint components to the transforms that act as joints in your chain.
+Add joint components to the transforms that act as constrained joints in your chain.
 
 When the solver initializes in Awake, it records the joints' starting positions and rotations. This is the *rest pose*, which provides the reference for joint limits.
 Arrange the chain in its intended starting pose before entering Play mode. If you create the chain through code, set up its pose before the solver initializes.
@@ -53,41 +63,87 @@ The limit applies to the joint's own movement relative to its IK parent. A paren
 children with it, and that does not count against their limits. Joints without a limit go
 straight to the solved pose.
 
-Speed limits use scaled delta time, so they do not depend on frame rate or Max Iterations.
-Limited joints hold still while `Time.timeScale` is 0.
+Speed limits use the delta time of each step, so they do not depend on frame rate or Max Iterations.
+With **Update Mode** set to **LateUpdate**, that is the scaled `Time.deltaTime`, and limited joints
+hold still while `Time.timeScale` is 0. When you step the solver yourself, it is the value you pass to
+`Step` or `Apply`.
 
 While limited joints are still moving, each solve continues from the previous solution, so the
-chain keeps working toward the same pose instead of switching to another one. FABRIK and CCD
-skip this when **Solve From Rest Pose** is enabled.
+chain keeps working toward the same pose instead of switching to another one. Solvers skip
+this when **Solve From Rest Pose** is enabled.
 
 With **Static Solver Configuration** enabled, the solver reads speed limits once at startup,
 like the other joint settings.
 
 ### Synchronize Limited Joints
 
-In **Solve and Apply** mode, if motion looks uneven, with some joints snapping into place while others are still moving,
+If motion looks uneven, with some joints snapping into place while others are still moving,
 try enabling **Synchronize Limited Joints** on the solver. All limited joints then reach the
-target pose together, and no joint exceeds its own limit. 
-
-To use this feature in **Solve Only** mode, call`ApplyLastOutput(deltaTime, synchronizeLimitedJoints = true)` instead.
+target pose together, and no joint exceeds its own limit. The setting applies whenever the
+solver applies a solution, including through `Apply`.
 
 ## Solving and applying
 
+Every solver update has two separate steps:
+
+1. **Solve** computes a new pose for the chain and stores it in `LastOutput`. It never moves the transforms.
+2. **Apply** moves the transforms toward `LastOutput`, at most as fast as the joint speed limits allow.
+
+### Execution settings
+
+The **Execution** section at the top of every solver's Inspector controls these steps.
+
+**Update Mode** sets when the solver runs:
+
+- **LateUpdate** (default): the solver runs one step every frame in `LateUpdate`, using scaled delta time.
+- **Manual**: the solver does nothing on its own. Call `Step(deltaTime)`, or `Solve()` + `Apply(deltaTime)`,
+  from your own script. Use this to run at a fixed rate or to control the order of several solvers.
+
+**Apply Mode** sets what a step does with the solution:
+
+- **Automatic** (default): the solver applies the solution to the transforms, with joint speed limits.
+- **Manual**: the solver only solves. The transforms stay where they are until you call `Apply(deltaTime)` or
+  `SnapToSolution()`, or until you use `LastOutput` yourself, for example to blend it with animation.
+
+| Update Mode | Apply Mode | Result                                                         |
+| --- | --- |----------------------------------------------------------------|
+| LateUpdate | Automatic | Solves and moves the chain every frame. (**default settings**) |
+| LateUpdate | Manual | Only Solves. Your script reads `LastOutput` or calls `Apply`.  |
+| Manual | Automatic | Your script calls `Step(deltaTime)` to solve and apply.        |
+| Manual | Manual | Your script calls `Solve()` and `Apply(deltaTime)` separately. |
+
+Scripts can change both settings at runtime through the `UpdateMode` and `ApplyMode` properties.
+
+### Scripting API
+
 | API | Behavior |
 | --- | --- |
-| `Mode = SolveMode.SolveAndApply` | Solves and applies each frame, including speed limits. Default. |
-| `Mode = SolveMode.SolveOnly` | Solves and exposes the result without writing transforms. |
-| `LastOutput` (`IKSolverOutput`) | The result of the most recent solve. See below. |
-| `Solved` | Fires after each solve. Output buffers are reused; copy data you need to keep. |
-| `SnapToSolution()` | Applies the stored result immediately in either mode, ignoring speed limits. It does not solve again. |
+| `Step(deltaTime)` | Solves, then applies when Apply Mode is Automatic. `LateUpdate` calls this with `Time.deltaTime`. |
+| `Solve()` | Solves and fills `LastOutput` without writing transforms. Returns false when the solver has no valid setup or target. |
+| `Apply(deltaTime)` | Moves the transforms toward `LastOutput` within the speed limits. With Automatic apply, `Step` already does this. |
+| `SnapToSolution()` | Writes `LastOutput` immediately, ignoring speed limits. It does not solve again. |
+| `Solved` | Fires after each solve, before the solution is applied. Output buffers are reused; copy data you need to keep. |
+| `Applied` | Fires after a solution is written to the transforms, with the resulting `ApplicationStatus`. |
 
 `LastOutput` is the solved state of the IK chain. It is the main way to connect the OpenIK solvers to your own code.
 It holds the solved world-space position and rotation of every joint (`WorldPositions` and `WorldRotations`, in root-to-end order), plus the solve details `IterationsUsed`, `Converged`, and `FinalError`.
 Read it after each solve or in the `Solved` event, for example to blend it with animation or to apply it yourself with `ApplyTo`.
 Each consecutive solve overwrites it, so copy any data you need to keep.
 
+For example, to run a solver at a fixed rate, set its **Update Mode** to **Manual** and step it from your own script:
+
+```csharp
+solver.UpdateMode = UpdateMode.Manual;
+
+void FixedUpdate()
+{
+    solver.Step(Time.fixedDeltaTime);
+}
+```
+
 `ApplicationStatus` (`IKApplicationStatus`) reports the actual pose. `Applied`
-means it was written; `ReachedSolution` means the joints reached the solved pose.
+means the latest solution was written; it is false between a solve and its apply.
+`ReachedSolution` means the joints reached the solved pose.
 That pose can still fall short of the target. Check `PositionError` for distance
 and `OrientationError` for degrees (NaN without an orientation objective).
 
@@ -98,8 +154,14 @@ individual joint outcomes. A converged `LastOutput` can leave the arm catching u
 
 Custom solvers and joint types can use the same building blocks as the built-in ones.
 
-A custom solver derives from `OpenIKSolverBase`, which applies the solved pose with
-`IKPoseApplier`, including speed limits. `SolverChain` and `SolverJoint` hold chain state.
+A custom solver derives from `OpenIKSolverBase` and overrides one method,
+`SolveChain(in IKGoal goal)`. The base class handles everything around it: setup checks,
+constraint updates, choosing the starting pose, filling `LastOutput`, and applying the result
+with speed limits through `IKPoseApplier`. Inside `SolveChain`, read and write only the solver
+state of `Chain` (`SolverChain` and its `SolverJoint` entries), never the transforms, and return
+a `SolveResult` with the iteration count and remaining error. Optional overrides cover the
+end-joint rotation (`WritesEndRotation`), slider support (`SupportsSliderTranslation`), and
+setup hooks (`OnInitialized`, `OnConstraintsRebound`).
 
 A custom joint derives from `ConstrainedJoint` and creates its constraints from
 `ISegmentConstraint` and `IAngularConstraint`. Both extend `IJacobianDofProvider`, which
@@ -120,4 +182,9 @@ The runtime also includes math utilities: `float6`, `Matrix6x6`, and `Matrix6xN`
   iterations. Increase tolerance only if you accept more error. With speed
   limits, inspect `ApplicationStatus.PositionError` as well as `ReachedSolution`.
 
+- Chain does not move: check the solver's **Execution** section. With **Update Mode**
+  set to **Manual**, a script must call `Step`. With **Apply Mode** set to **Manual**, a
+  script must call `Apply` or `SnapToSolution`.
+
 - Unexpected movement: check joint order, local constraint axes, and the rest pose.
+  The Console reports joints listed in the wrong hierarchy order.

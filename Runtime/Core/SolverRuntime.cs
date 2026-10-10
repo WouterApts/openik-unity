@@ -11,17 +11,6 @@ namespace OpenIK
     }
 
     /// <summary>
-    /// Selects whether a solver writes its solved pose back to the scene transforms.
-    /// </summary>
-    public enum SolveMode
-    {
-        /// <summary>Solve and write the solved pose to the chain's transforms (default behavior).</summary>
-        SolveAndApply,
-        /// <summary>Solve only; expose the solved pose via the solver's output without touching transforms.</summary>
-        SolveOnly
-    }
-
-    /// <summary>
     /// Standardized world-space output of an IK solve.
     /// <para>
     /// One instance per solver, populated each frame with the solved chain pose plus convergence
@@ -364,12 +353,41 @@ namespace OpenIK
                 }
             }
 
-            if (error == null)
-                return true;
+            if (error != null)
+            {
+                Debug.LogError($"[OpenIK] {solverName} disabled: {error}", solver);
+                solver.enabled = false;
+                return false;
+            }
 
-            Debug.LogError($"[OpenIK] {solverName} disabled: {error}", solver);
-            solver.enabled = false;
-            return false;
+            LogInvalidJointOrder(solver, solverName, chainJoints);
+            return true;
+        }
+
+        // Reports joints listed below one of their descendants. The solver still runs, but the
+        // chain will not move as expected.
+        private static void LogInvalidJointOrder(MonoBehaviour solver, string solverName, IReadOnlyList<Transform> chainJoints)
+        {
+            for (int i = 1; i < chainJoints.Count; i++)
+            {
+                int parentDepth = GetHierarchyDepth(chainJoints[i - 1]);
+                int childDepth = GetHierarchyDepth(chainJoints[i]);
+                if (parentDepth > childDepth)
+                {
+                    Debug.LogError(
+                        $"[OpenIK] {solverName}: invalid joint order. \"{chainJoints[i - 1].name}\" (depth {parentDepth}) is deeper in the hierarchy than " +
+                        $"\"{chainJoints[i].name}\" (depth {childDepth}). List Chain Joints from the root to the end effector.",
+                        solver);
+                }
+            }
+        }
+
+        private static int GetHierarchyDepth(Transform transform)
+        {
+            int depth = 0;
+            for (Transform t = transform.parent; t != null; t = t.parent)
+                depth++;
+            return depth;
         }
     }
 

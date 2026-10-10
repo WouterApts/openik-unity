@@ -2,6 +2,7 @@ using UnityEngine;
 
 namespace OpenIK
 {
+    /// <summary>Limits a joint's swing to a cone around an axis, and its twist around that axis.</summary>
     public class BallSocketIKJoint : ConstrainedJoint
     {
         [Header("Constraint Axis")]
@@ -28,18 +29,11 @@ namespace OpenIK
 
         public override Quaternion LocalConstraintAxisRotation => _localConstraintAxisRotation;
 
-        /// The speed cap applies to the joint's total relative rotation (swing and twist combined).
+        // The speed limit applies to swing and twist together.
         public override JointMotionSupport MotionSupport => JointMotionSupport.Angular;
 
-        /// <summary>
-        /// Refreshes cached data when the constraint axis or swing limits change.
-        /// </summary>
-        /// <remarks>
-        /// Recomputes the local constraint frame when <see cref="constraintAxis"/> changes, the pitch
-        /// sine when <see cref="swingPitchHalfAngle"/> changes, and the yaw sine when
-        /// <see cref="swingYawHalfAngle"/> changes. Twist is not cached here; it is copied into the
-        /// runtime config each frame by <see cref="ApplyAngularConfig"/>.
-        /// </remarks>
+        // Rebuilds the constraint frame when the axis changes, and the swing sines when their angles
+        // change. Twist is not cached; ApplyAngularConfig copies it before each solve.
         public override void UpdateConstraints()
         {
             if (_cachedConstraintAxis != constraintAxis)
@@ -70,7 +64,6 @@ namespace OpenIK
                 ballSocket.ApplyConfig(BuildAngularConfig());
         }
 
-        /// Packages the current ball-socket settings for the runtime angular constraint.
         private BallSocketAngularConstraint.Config BuildAngularConfig()
         {
             return new BallSocketAngularConstraint.Config(
@@ -80,10 +73,10 @@ namespace OpenIK
                 twistHalfAngle);
         }
 
-        /// <summary>Converts a swing quaternion (x, y, 0, w) back to a direction on the sphere.</summary>
-        /// <param name="swing">The swing quaternion to convert.</param>
-        /// <param name="constraintRot">The constraint frame rotation to apply.</param>
-        /// <returns>A world-space direction vector on the constraint sphere.</returns>
+        /// <summary>Converts a swing rotation (x, y, 0, w) to the direction it turns the forward axis to.</summary>
+        /// <param name="swing">The swing rotation, in the constraint frame.</param>
+        /// <param name="constraintRot">The world rotation of the constraint frame.</param>
+        /// <returns>The world-space direction.</returns>
         public static Vector3 SwingToDirection(Quaternion swing, Quaternion constraintRot)
         {
             swing.Normalize();
@@ -96,10 +89,10 @@ namespace OpenIK
             return GetConstraintBaseRotation() * Quaternion.FromToRotation(Vector3.forward, constraintAxis.normalized);
         }
 
-        /// <summary>Clamps the twist component around the forward axis to the allowed range.</summary>
-        /// <param name="twist">The twist-only quaternion to clamp.</param>
-        /// <param name="twistHalfAngle">Maximum allowed twist in degrees (symmetric around zero).</param>
-        /// <returns>The clamped twist quaternion.</returns>
+        /// <summary>Clamps a twist around the forward axis to the allowed range.</summary>
+        /// <param name="twist">A rotation around the forward axis only.</param>
+        /// <param name="twistHalfAngle">Maximum twist in either direction, in degrees.</param>
+        /// <returns>The clamped twist.</returns>
         public static Quaternion ClampTwist(Quaternion twist, float twistHalfAngle)
         {
             float angleRad = 2f * Mathf.Atan2(twist.z, twist.w);
@@ -110,19 +103,19 @@ namespace OpenIK
             return Quaternion.AngleAxis(clamped, Vector3.forward);
         }
 
-        /// <summary>Clamps a swing quaternion to an elliptical cone defined by pitch and yaw half-angle sines.</summary>
-        /// <param name="swing">The swing-only quaternion (z component is zero).</param>
+        /// <summary>Clamps a swing to an elliptical cone set by the pitch and yaw limits.</summary>
+        /// <param name="swing">A swing rotation, with a z component of zero.</param>
         /// <param name="pitchHalfSin">Sine of half the pitch limit angle.</param>
         /// <param name="yawHalfSin">Sine of half the yaw limit angle.</param>
-        /// <returns>The clamped swing quaternion.</returns>
+        /// <returns>The clamped swing.</returns>
         public static Quaternion ClampSwing(Quaternion swing, float pitchHalfSin, float yawHalfSin)
         {
             const float SWING_EPSILON = 1e-4f;
             float a = yawHalfSin;
             float b = pitchHalfSin;
 
-            // Swing quaternions store the cone direction in x/y. The ellipse equation clamps
-            // asymmetric yaw/pitch limits while preserving the closest reachable direction.
+            // A swing stores its direction in x and y. Clamping to an ellipse handles different yaw
+            // and pitch limits and keeps the closest direction inside them.
             if (a < SWING_EPSILON && b < SWING_EPSILON)
                 return Quaternion.identity;
 
@@ -150,9 +143,9 @@ namespace OpenIK
             return new Quaternion(closest.x, closest.y, 0f, sNew2 > 0f ? Mathf.Sqrt(sNew2) : 0f);
         }
 
-        /// <summary>Extracts the swing component of a quaternion around the forward (Z) axis.</summary>
-        /// <param name="q">The quaternion to decompose.</param>
-        /// <returns>A swing quaternion with z=0, representing rotation perpendicular to forward.</returns>
+        /// <summary>Returns the swing part of a rotation: the part that moves the forward (Z) axis.</summary>
+        /// <param name="q">The rotation to split.</param>
+        /// <returns>The swing, with a z component of zero.</returns>
         public static Quaternion ExtractSwingAroundForwardVector(Quaternion q)
         {
             float w = q.w, z = q.z;
@@ -160,7 +153,7 @@ namespace OpenIK
             if (s < 1e-6f)
                 return q;
 
-            // Remove the Z-axis twist component, leaving only the rotation that moves forward.
+            // Remove the twist around Z, leaving only the rotation that moves the forward axis.
             float invS = 1f / s;
             return new Quaternion(
                 (w * q.x - q.y * z) * invS,
@@ -169,9 +162,9 @@ namespace OpenIK
                 s);
         }
 
-        /// <summary>Extracts the twist component of a quaternion around the forward (Z) axis.</summary>
-        /// <param name="q">The quaternion to decompose.</param>
-        /// <returns>A twist quaternion with x=0 and y=0, representing rotation around forward.</returns>
+        /// <summary>Returns the twist part of a rotation: the rotation around the forward (Z) axis.</summary>
+        /// <param name="q">The rotation to split.</param>
+        /// <returns>The twist, with x and y components of zero.</returns>
         public static Quaternion ExtractTwistAroundForwardVector(Quaternion q)
         {
             float w = q.w, z = q.z;
@@ -179,17 +172,12 @@ namespace OpenIK
             if (s < 1e-6f)
                 return Quaternion.identity;
 
-            // Keep only the normalized quaternion projection around the local forward axis.
+            // Keep only the rotation around the forward axis, normalized.
             float invS = 1f / s;
             return new Quaternion(0f, 0f, z * invS, w * invS);
         }
 
-        /// <summary>Finds the closest point on an axis-aligned ellipse to a given point using Newton's method.</summary>
-        /// <param name="px">X coordinate of the query point.</param>
-        /// <param name="py">Y coordinate of the query point.</param>
-        /// <param name="a">Ellipse semi-axis length along X.</param>
-        /// <param name="b">Ellipse semi-axis length along Y.</param>
-        /// <returns>The closest point on the ellipse.</returns>
+        // Closest point to (px, py) on an axis-aligned ellipse with half-axes a (X) and b (Y).
         private static Vector2 ClosestPointOnEllipse(float px, float py, float a, float b)
         {
             float t = Mathf.Atan2(a * py, b * px);

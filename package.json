@@ -1,6 +1,6 @@
 {
   "name": "com.wouterapts.openik",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "displayName": "OpenIK",
   "description": "Inverse kinematics solvers and joint constraints for Unity.",
   "unity": "6000.0",

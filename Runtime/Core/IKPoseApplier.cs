@@ -54,8 +54,15 @@ namespace OpenIK
         /// <summary>True when <see cref="OrientationError"/> holds a value.</summary>
         public bool HasOrientationError => !float.IsNaN(OrientationError);
 
-        /// <summary>Status for a solve that was not written to the transforms (for example in SolveOnly mode).</summary>
-        public static IKApplicationStatus NotApplied => new(false, false, false, false, false, float.NaN, float.NaN);
+        /// <summary>Status for a solve that was not written to the transforms, for example with a Manual apply mode.</summary>
+        public static IKApplicationStatus NotApplied => new(
+            applied: false,
+            usedSpeedLimits: false,
+            anyJointLimited: false,
+            anyJointBlocked: false,
+            anyJointStartedOutsideLimits: false,
+            positionError: float.NaN,
+            orientationError: float.NaN);
 
         internal IKApplicationStatus(
             bool applied,
@@ -78,13 +85,13 @@ namespace OpenIK
         internal IKApplicationStatus WithTargetErrors(float positionError, float orientationError)
         {
             return new IKApplicationStatus(
-                Applied,
-                UsedSpeedLimits,
-                AnyJointLimited,
-                AnyJointBlocked,
-                AnyJointStartedOutsideLimits,
-                positionError,
-                orientationError);
+                applied: Applied,
+                usedSpeedLimits: UsedSpeedLimits,
+                anyJointLimited: AnyJointLimited,
+                anyJointBlocked: AnyJointBlocked,
+                anyJointStartedOutsideLimits: AnyJointStartedOutsideLimits,
+                positionError: positionError,
+                orientationError: orientationError);
         }
     }
 
@@ -132,14 +139,13 @@ namespace OpenIK
         }
 
         /// <summary>
-        /// Applies <paramref name="output"/> to its source transforms, honoring the speed limits bound to
-        /// <paramref name="chain"/>.
+        /// Applies <paramref name="output"/> to its source transforms, honoring the speed limits bound to the chain
         /// </summary>
         /// <param name="output">The desired pose. Must have been populated from <paramref name="chain"/>.</param>
         /// <param name="chain">The chain whose relationships, rest frames, and runtime constraints drive application.</param>
         /// <param name="deltaTime">
-        /// Elapsed time for the speed budget. Zero, negative, or NaN gives a zero budget: limited joints
-        /// do not move, except that hinge off-axis rotation and slider sideways offset are still removed.
+        /// Elapsed time for the speed budget. Zero, negative, or NaN gives a zero budget, meaning limited joints
+        /// do not move, except that hinge off-axis rotation and slider sideways offset are still correcly removed.
         /// </param>
         /// <param name="synchronizeJoints">
         /// When a limited joint cannot reach its solved pose within its budget, slow every limited joint
@@ -165,7 +171,14 @@ namespace OpenIK
             if (!HasActiveSpeedLimits(chain))
             {
                 output.ApplyToSourceTransforms();
-                return new IKApplicationStatus(true, false, false, false, false, float.NaN, float.NaN);
+                return new IKApplicationStatus(
+                    applied: true,
+                    usedSpeedLimits: false,
+                    anyJointLimited: false,
+                    anyJointBlocked: false,
+                    anyJointStartedOutsideLimits: false,
+                    positionError: float.NaN,
+                    orientationError: float.NaN);
             }
 
             float dt = deltaTime > 0f ? deltaTime : 0f;
@@ -307,7 +320,14 @@ namespace OpenIK
                     joints[i].Transform.position = _appliedPositions[i];
             }
 
-            return new IKApplicationStatus(true, true, anyLimited, anyBlocked, anyOutside, float.NaN, float.NaN);
+            return new IKApplicationStatus(
+                applied: true,
+                usedSpeedLimits: true,
+                anyJointLimited: anyLimited,
+                anyJointBlocked: anyBlocked,
+                anyJointStartedOutsideLimits: anyOutside,
+                positionError: float.NaN,
+                orientationError: float.NaN);
         }
 
         /// Fraction of the remaining travel that fits in the budget, at most 1.

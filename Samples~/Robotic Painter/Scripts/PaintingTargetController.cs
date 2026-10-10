@@ -112,12 +112,10 @@ namespace OpenIK.Showcase
         [SerializeField] private float paintPickerTimeout = 3f;
 
         [Header("Raycasting")]
-        [Tooltip("LayerMask that includes the canvas collider layer.")]
-        [SerializeField] private LayerMask canvasLayer = ~0;
-
         [Tooltip("Maximum ray distance for canvas intersection test.")]
         [SerializeField] private float raycastMaxDistance = 50f;
 
+        private Collider _canvasCollider;
         private Vector3 _desiredPosition;
         private Quaternion _desiredRotation;
         private bool _hasValidTarget;
@@ -218,6 +216,15 @@ namespace OpenIK.Showcase
             if (solver == null)
                 solver = GetComponent<OpenIKSolverBase>();
 
+            if (canvas != null)
+                _canvasCollider = canvas.GetComponent<Collider>();
+
+            if (canvas != null && _canvasCollider == null)
+            {
+                Debug.LogWarning(
+                    $"{nameof(PaintingTargetController)} on '{name}': The canvas has no collider, so the mouse cannot paint on it.");
+            }
+
             // Remember which arm joints are authored with a speed limit so they can be toggled per mode.
             var limitedJoints = new System.Collections.Generic.List<ConstrainedJoint>();
             foreach (ConstrainedJoint joint in GetComponentsInChildren<ConstrainedJoint>(true))
@@ -284,7 +291,9 @@ namespace OpenIK.Showcase
         {
             Ray mouseRay = BuildMouseRay();
 
-            if (Physics.Raycast(mouseRay, out RaycastHit hit, raycastMaxDistance, canvasLayer))
+            // Test only the canvas collider. A scene raycast would also hit the paint buckets and the
+            // IK target, and the arm would move to them.
+            if (_canvasCollider != null && _canvasCollider.Raycast(mouseRay, out RaycastHit hit, raycastMaxDistance))
             {
                 _hasValidTarget = true;
 
@@ -535,14 +544,10 @@ namespace OpenIK.Showcase
 
         private bool IsBrushInContact()
         {
-            if (brushTip == null || canvas == null)
+            if (brushTip == null || _canvasCollider == null)
                 return true;
 
-            Collider canvasCollider = canvas.GetComponent<Collider>();
-            if (canvasCollider == null)
-                return true;
-
-            Vector3 closestPoint = canvasCollider.ClosestPoint(brushTip.position);
+            Vector3 closestPoint = _canvasCollider.ClosestPoint(brushTip.position);
             return Vector3.Distance(brushTip.position, closestPoint) <= paintContactDistance;
         }
 

@@ -82,7 +82,7 @@ namespace OpenIK
 
     /// <summary>
     /// Optional capability of an <see cref="IAngularConstraint"/>: moves a joint's rotation toward a
-    /// desired rotation by a bounded angle without leaving the constraint's legal range.
+    /// desired rotation by a bounded angle without leaving the constraint's allowed range.
     /// </summary>
     /// <remarks>
     /// Deviations are expressed in the constraint-axis frame, as produced by
@@ -109,7 +109,7 @@ namespace OpenIK
 
     /// <summary>
     /// Optional capability of an <see cref="ISegmentConstraint"/>: moves a joint's offset from its IK
-    /// parent toward a desired offset by a bounded distance without leaving the segment's legal range.
+    /// parent toward a desired offset by a bounded distance without leaving the segment's allowed range.
     /// </summary>
     /// <remarks>
     /// Offsets are expressed in the IK parent's rotation frame in world units, matching

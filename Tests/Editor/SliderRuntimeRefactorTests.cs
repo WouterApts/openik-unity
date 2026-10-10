@@ -208,14 +208,14 @@ namespace OpenIK.Editor.Tests
             Assert.That(joints[1].Angular, Is.TypeOf<FixedAngularConstraint>());
 
             chain.SliderJoint.jointIsEnabled = false;
-            Assert.That((bool)InvokePrivateResult(chain.FabrikSolver, "RefreshConstraintBindings"), Is.True);
+            Assert.That(chain.FabrikSolver.Chain.RefreshConstraintBindings(), Is.True);
 
             Assert.That(joints[1].Segment, Is.TypeOf<RigidSegmentConstraint>());
             Assert.That(joints[1].Angular, Is.TypeOf<FreeAngularConstraint>());
 
             chain.SliderJoint.jointIsEnabled = true;
             chain.SliderJoint.UpdateConstraints();
-            Assert.That((bool)InvokePrivateResult(chain.FabrikSolver, "RefreshConstraintBindings"), Is.True);
+            Assert.That(chain.FabrikSolver.Chain.RefreshConstraintBindings(), Is.True);
 
             Assert.That(joints[1].Segment, Is.TypeOf<SliderSegmentConstraint>());
             Assert.That(joints[1].Angular, Is.TypeOf<FixedAngularConstraint>());
@@ -230,13 +230,10 @@ namespace OpenIK.Editor.Tests
             object dofsBefore = GetPrivateField(chain.JacobianSolver, "_dofs");
 
             chain.SliderJoint.maxLength = 3f;
-            chain.SliderJoint.UpdateConstraints();
-            bool bindingsChanged = (bool)InvokePrivateResult(chain.JacobianSolver, "RefreshConstraintBindings");
-            InvokePrivate(chain.JacobianSolver, "ApplyRuntimeConfigs");
+            Assert.That(chain.JacobianSolver.Solve(), Is.True);
 
             object dofsAfter = GetPrivateField(chain.JacobianSolver, "_dofs");
 
-            Assert.That(bindingsChanged, Is.False);
             Assert.That(dofsAfter, Is.SameAs(dofsBefore));
             Assert.That(GetSegment<SliderSegmentConstraint>(chain.JacobianSolver, 1).MaxReach, Is.EqualTo(4f).Within(Epsilon));
         }
@@ -419,30 +416,11 @@ namespace OpenIK.Editor.Tests
             return new SliderChainFixture(solverRoot, target, chain, fabrikSolver, jacobianSolver, null);
         }
 
-        private static SolverJoint[] GetSolverJoints(object solver)
-        {
-            FieldInfo jointsField = solver.GetType().GetField("_joints", BindingFlags.Instance | BindingFlags.NonPublic);
-            if (jointsField != null)
-                return (SolverJoint[])jointsField.GetValue(solver);
+        private static SolverJoint[] GetSolverJoints(OpenIKSolverBase solver) => solver.Chain.Joints;
 
-            return GetSolverChain(solver).Joints;
-        }
+        private static float GetChainLength(OpenIKSolverBase solver) => solver.Chain.ChainLength;
 
-        private static float GetChainLength(object solver)
-        {
-            FieldInfo chainLengthField = solver.GetType().GetField("_chainLength", BindingFlags.Instance | BindingFlags.NonPublic);
-            if (chainLengthField != null)
-                return (float)chainLengthField.GetValue(solver);
-
-            return GetSolverChain(solver).ChainLength;
-        }
-
-        private static SolverChain GetSolverChain(object solver)
-        {
-            return (SolverChain)GetPrivateField(solver, "_chain");
-        }
-
-        private static T GetSegment<T>(object solver, int jointIndex) where T : class, ISegmentConstraint
+        private static T GetSegment<T>(OpenIKSolverBase solver, int jointIndex) where T : class, ISegmentConstraint
         {
             SolverJoint[] joints = GetSolverJoints(solver);
             Assert.That(joints[jointIndex].Segment, Is.TypeOf<T>());
@@ -456,9 +434,12 @@ namespace OpenIK.Editor.Tests
             return field.GetValue(instance);
         }
 
+        // Private members can be declared on a base class, so search the whole hierarchy.
         private static void SetPrivateField(object instance, string fieldName, object value)
         {
-            FieldInfo field = instance.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
+            FieldInfo field = null;
+            for (System.Type type = instance.GetType(); type != null && field == null; type = type.BaseType)
+                field = type.GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.DeclaredOnly);
             Assert.That(field, Is.Not.Null, $"Expected private field '{fieldName}' on {instance.GetType().Name}.");
             field.SetValue(instance, value);
         }
@@ -470,14 +451,11 @@ namespace OpenIK.Editor.Tests
 
         private static object InvokePrivateResult(object instance, string methodName)
         {
-            return InvokePrivateResult(instance, methodName, null);
-        }
-
-        private static object InvokePrivateResult(object instance, string methodName, params object[] parameters)
-        {
-            MethodInfo method = instance.GetType().GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic);
+            MethodInfo method = null;
+            for (System.Type type = instance.GetType(); type != null && method == null; type = type.BaseType)
+                method = type.GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.DeclaredOnly);
             Assert.That(method, Is.Not.Null, $"Expected private method '{methodName}' on {instance.GetType().Name}.");
-            return method.Invoke(instance, parameters);
+            return method.Invoke(instance, null);
         }
 
         private static void AssertVector3(Vector3 expected, Vector3 actual)

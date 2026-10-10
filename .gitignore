@@ -19,14 +19,12 @@
 .idea/
 .vs/
 .vscode/
-.claude/
 .codex/
 .agents/
 .cursor/
 .copilot/
 .github/copilot-instructions.md
 AGENTS.md
-CLAUDE.md
 Docs/
 Source~/
 *_Recovery*/

@@ -2,6 +2,7 @@ using UnityEngine;
 
 namespace OpenIK
 {
+    /// <summary>Limits a joint to rotation around one axis, between a minimum and a maximum angle.</summary>
     public class HingeIKJoint : ConstrainedJoint
     {
         [Header("Hinge Axis")]
@@ -26,14 +27,8 @@ namespace OpenIK
 
         public override JointMotionSupport MotionSupport => JointMotionSupport.Angular;
 
-        /// <summary>
-        /// Refreshes cached hinge data when the hinge axis or zero-angle offset changes.
-        /// </summary>
-        /// <remarks>
-        /// Recomputes the local constraint frame when <see cref="hingeAxis"/> or
-        /// <see cref="zeroAngleOffset"/> changes. Min and max angles are not cached here; they are
-        /// copied into the runtime config each frame by <see cref="ApplyAngularConfig"/>.
-        /// </remarks>
+        // Rebuilds the constraint frame when the hinge axis or zero angle changes. The min and max
+        // angles are not cached; ApplyAngularConfig copies them before each solve.
         public override void UpdateConstraints()
         {
             if (_cachedHingeAxis != hingeAxis || !Mathf.Approximately(_cachedZeroAngleOffset, zeroAngleOffset))
@@ -44,8 +39,8 @@ namespace OpenIK
             }
         }
 
-        // The zero-angle reference vector (perpendicular to the hinge axis, rotated by zeroAngleOffset).
-        // Defines the constraint frame origin; hingeMinAngle / hingeMaxAngle are measured from this.
+        // The direction of the zero angle: perpendicular to the hinge axis and turned by zeroAngleOffset.
+        // hingeMinAngle and hingeMaxAngle are measured from it.
         private Vector3 ComputeZeroReferenceDirection()
         {
             Vector3 hinge = hingeAxis.normalized;
@@ -67,7 +62,6 @@ namespace OpenIK
                 hinge.ApplyConfig(BuildAngularConfig());
         }
 
-        /// Packages the current hinge settings for the runtime angular constraint.
         private HingeAngularConstraint.Config BuildAngularConfig()
         {
             Vector3 hinge = hingeAxis.sqrMagnitude > 1e-8f
@@ -80,13 +74,10 @@ namespace OpenIK
                 hingeMaxAngle);
         }
 
-        /// <summary>
-        /// Projects a deviation quaternion onto the hinge axis plane,
-        /// without clamping the angle. Used in the FABRIK forward pass for hinge enforcement.
-        /// </summary>
-        /// <param name="deviation">The deviation quaternion to project.</param>
-        /// <param name="localHingeAxis">The hinge axis in constraint-frame-local space.</param>
-        /// <returns>A normalized quaternion containing only the hinge-axis rotation component.</returns>
+        /// <summary>Keeps only the rotation around the hinge axis, without clamping the angle.</summary>
+        /// <param name="deviation">The joint's rotation away from its rest pose, in the constraint frame.</param>
+        /// <param name="localHingeAxis">The hinge axis in the constraint frame.</param>
+        /// <returns>A normalized rotation around the hinge axis only.</returns>
         public static Quaternion ProjectOntoHingePlane(Quaternion deviation, Vector3 localHingeAxis)
         {
             float dot = deviation.x * localHingeAxis.x + deviation.y * localHingeAxis.y + deviation.z * localHingeAxis.z;
@@ -101,14 +92,13 @@ namespace OpenIK
         }
 
         /// <summary>
-        /// Clamps a deviation quaternion to a hinge constraint.
-        /// Projects the deviation onto rotation around the hinge axis, then clamps the angle.
+        /// Keeps only the rotation around the hinge axis and clamps its angle to the allowed range.
         /// </summary>
-        /// <param name="deviation">The deviation quaternion to clamp.</param>
-        /// <param name="localHingeAxis">The hinge axis in constraint-frame-local space.</param>
+        /// <param name="deviation">The joint's rotation away from its rest pose, in the constraint frame.</param>
+        /// <param name="localHingeAxis">The hinge axis in the constraint frame.</param>
         /// <param name="minAngle">Minimum allowed angle in degrees.</param>
         /// <param name="maxAngle">Maximum allowed angle in degrees.</param>
-        /// <returns>A quaternion representing the clamped rotation around the hinge axis.</returns>
+        /// <returns>The clamped rotation around the hinge axis.</returns>
         public static Quaternion ClampHinge(Quaternion deviation, Vector3 localHingeAxis, float minAngle, float maxAngle)
         {
             float angleDeg = ExtractHingeAngle(deviation, localHingeAxis);
@@ -117,27 +107,22 @@ namespace OpenIK
             return Quaternion.AngleAxis(clampedDeg, localHingeAxis);
         }
 
-        /// <summary>
-        /// Extracts the signed rotation angle of a deviation around the hinge axis, ignoring any
-        /// off-axis rotation.
-        /// </summary>
-        /// <param name="deviation">The deviation quaternion to measure.</param>
-        /// <param name="localHingeAxis">The hinge axis in constraint-frame-local space.</param>
-        /// <returns>The signed hinge angle in degrees, in the range [-180, 180].</returns>
+        /// <summary>Measures the signed angle around the hinge axis, ignoring rotation around other axes.</summary>
+        /// <param name="deviation">The joint's rotation away from its rest pose, in the constraint frame.</param>
+        /// <param name="localHingeAxis">The hinge axis in the constraint frame.</param>
+        /// <returns>The signed hinge angle in degrees, from -180 to 180.</returns>
         public static float ExtractHingeAngle(Quaternion deviation, Vector3 localHingeAxis)
         {
-            // Project the deviation onto the hinge axis:
-            // Extract only the component of rotation around localHingeAxis
+            // Keep only the rotation around localHingeAxis.
             float dot = deviation.x * localHingeAxis.x + deviation.y * localHingeAxis.y + deviation.z * localHingeAxis.z;
             float projX = localHingeAxis.x * dot;
             float projY = localHingeAxis.y * dot;
             float projZ = localHingeAxis.z * dot;
 
-            // Construct normalized quaternion with only the hinge-axis component
             Quaternion hingeOnly = new Quaternion(projX, projY, projZ, deviation.w);
             hingeOnly.Normalize();
 
-            // Ensure w > 0 for consistent angle extraction
+            // A positive w gives the same angle for both forms of the same rotation.
             if (hingeOnly.w < 0f)
             {
                 hingeOnly.x = -hingeOnly.x;
@@ -146,7 +131,6 @@ namespace OpenIK
                 hingeOnly.w = -hingeOnly.w;
             }
 
-            // Extract signed angle around the hinge axis
             float sinHalf = Mathf.Sqrt(hingeOnly.x * hingeOnly.x + hingeOnly.y * hingeOnly.y + hingeOnly.z * hingeOnly.z);
             float sign = (hingeOnly.x * localHingeAxis.x + hingeOnly.y * localHingeAxis.y + hingeOnly.z * localHingeAxis.z) >= 0f ? 1f : -1f;
             float angleRad = 2f * Mathf.Atan2(sinHalf * sign, hingeOnly.w);

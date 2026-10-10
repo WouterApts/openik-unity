@@ -8,7 +8,7 @@ the sample colors and lighting.
 
 1. Select OpenIK in Package Manager and open Samples.
 2. Import Shared Assets first, then the scene samples you want.
-3. Open a scene under `Assets/Samples/OpenIK/0.2.0/` and press Play.
+3. Open a scene under `Assets/Samples/OpenIK/0.3.0/` and press Play.
 4. Select Display 1 and click the Game view to give keyboard/mouse controls focus.
 
 The samples work with any Active Input Handling setting (**Input Manager (Old)**,
@@ -28,8 +28,18 @@ version and keep the `.meta` files. Without them, the scenes lose their referenc
 
 ## Sample Chains
 
-`Human Arm.unity` has a FABRIK chain. `Basic Chains.unity` has FABRIK and Jacobian
-constraint examples. Move targets in the Scene view during Play mode.
+`Basic Chains.unity` has six labeled chains:
+
+- **Slider joints (FABRIK):** a chain with two slider joints, each with a rod that fills the gap as it extends.
+- **Hinges + ball sockets (FABRIK):** a long chain that mixes both joint types.
+- **Hinges + ball sockets (CCD):** a long chain with the same joint types, solved with CCD.
+- **Position + Direction (Jacobian):** the last bone reaches the target and points along its cone.
+- **Speed limits (FABRIK):** a long chain with speed-limited joints. Drag Speed Limited Chain
+  Target to see it lag behind.
+- **Shoulder + elbow (FABRIK):** an arm with two ball sockets and a hinge.
+
+Move the white targets in the Scene view during Play mode.
+Every chain shows its bone line and joint constraint gizmos in the Scene view, even when not selected.
 
 ## Robotic Painter
 

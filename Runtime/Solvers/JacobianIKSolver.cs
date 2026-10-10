@@ -4,51 +4,42 @@ using UnityEngine;
 namespace OpenIK
 {
     /// <summary>
-    /// Jacobian Damped Least Squares (DLS) Solver ― Each iteration assembles a 6xN Jacobian from
-    /// every joint's rotational and translational degrees of freedom, then solves a damped linear
-    /// system to produce the step that best reduces the end-effector error.
-    /// Damping stabilizes the step near singularities at the cost of slower convergence.
+    /// Jacobian Damped Least Squares (DLS) solver. Moves the end effector to the target position,
+    /// optionally matching the target's orientation as well.
     /// </summary>
     /// <remarks>
-    /// Supports prismatic (slider) segments as translational DOFs. Can solve for end-effector
-    /// position alone or position combined with orientation; see <see cref="OrientationMode"/>.
+    /// Each iteration builds a 6xN Jacobian from every joint's rotational and translational degrees
+    /// of freedom, then solves a damped linear system for the step that best reduces the end-effector
+    /// error. Damping keeps the step stable near singularities at the cost of slower convergence.
+    /// Slider segments are solved as translational degrees of freedom.
     /// </remarks>
     public class JacobianIKSolver : OpenIKSolverBase
     {
-        [SerializeField] private Transform target;
-        [Tooltip("Convergence threshold for the combined position + orientation error.")]
-        [SerializeField] private float tolerance = 0.001f;
-        [SerializeField] private int maxIterations = 10;
-        [SerializeField] private List<Transform> chainJoints = new();
-
-        [Header("Performance")]
-        [Tooltip("Enable when the chain, constraints, and runtime settings stay fixed. This skips per-frame constraint refreshes, runtime config application (including joint speed limits), and chain length recomputation.")]
-        [SerializeField] private bool staticSolverConfiguration = false;
-
         [Header("Damped Least Squares")]
-        [Tooltip("Damping factor (λ). Higher = more stable near singularities, but slower convergence.")]
+        [Tooltip("Stabilizes solver steps near singularities. Higher values can slow convergence.")]
         [SerializeField] private float damping = 0.1f;
 
-        [Tooltip("Step size multiplier applied to the joint angle deltas each iteration.")]
+        [Tooltip("Scales each iteration's joint rotation and slider movement.")]
         [Range(0.01f, 1f)]
         [SerializeField] private float stepSize = 1f;
 
         [Header("Orientation")]
         [SerializeField] private OrientationMode orientationMode = OrientationMode.FullRotation;
 
-        [Tooltip("Scales rotational error relative to position error. Higher values make the solver spend more effort matching the selected orientation mode.")]
+        [Tooltip("Controls the importance of matching orientation relative to position. Higher values favour orientation and also affect the tolerance check. " +
+                 "Zero removes the orientation objective; unused when Orientation Mode is None.")]
         [Range(0f, 3f)]
         [SerializeField] private float orientationWeight = 1f;
 
         private enum OrientationMode
         {
-            /// <summary> Ignore the target's rotation entirely. The Jacobian carries only position error. </summary>
+            // Ignore the target's rotation. The Jacobian carries only position error.
             None,
 
-            /// <summary> Aim the final bone to match the full target rotation. </summary>
+            // Match the final bone's rotation to the full target rotation.
             FullRotation,
 
-            /// <summary> Aim the final bone along the target's forward-axis (Z-axis) without constraining twist. </summary>
+            // Aim the final bone along the target's forward axis (+Z) without constraining twist.
             BoneDirection,
         }
 
@@ -61,10 +52,6 @@ namespace OpenIK
             public Vector3 axis;
         }
 
-        private readonly SolverChain _chain = new();
-
-        protected override SolverChain Chain => _chain;
-        protected override Transform SolveTarget => target;
         private SolverJoint[] _joints;
         private int _jointCount;
         private DOF[] _dofs;
@@ -72,33 +59,22 @@ namespace OpenIK
         private Matrix6xN _jacobian;
         private float[] _deltaTheta;
 
-        private void Awake()
-        {
-            if (!SolverSetupValidation.Validate(this, "Jacobian Solver", target, chainJoints))
-                return;
+        protected override string SolverName => "Jacobian Solver";
 
-            _chain.Initialize(chainJoints);
-            SyncCachedChainState();
-            // Seed solver state from transforms, then pull prismatic positions into runtime segment state
-            // before the first solve.
-            _chain.SyncSolverStateFromTransforms();
+        protected override bool WritesEndRotation => true;
+
+        protected override void OnInitialized()
+        {
+            _joints = Chain.Joints;
+            _jointCount = _joints.Length;
+            // Pull slider positions into the runtime segment state before the DOFs are built.
+            Chain.SyncSolverStateFromTransforms();
             BuildDOFs();
         }
 
-        private void SyncCachedChainState()
+        protected override void OnConstraintsRebound()
         {
-            _joints = _chain.Joints;
-            _jointCount = _joints.Length;
-        }
-
-        private bool RefreshConstraintBindings()
-        {
-            return _chain.RefreshConstraintBindings();
-        }
-
-        private void ApplyRuntimeConfigs()
-        {
-            _chain.ApplyRuntimeConfigs();
+            BuildDOFs();
         }
 
         private void BuildDOFs()
@@ -134,39 +110,17 @@ namespace OpenIK
             }
         }
 
-        private void LateUpdate()
-        {
-            if (_jointCount < 2 || target == null) return;
-
-            bool bindingsChanged = false;
-            if (!staticSolverConfiguration)
-            {
-                _chain.UpdateConstraints();
-                bindingsChanged = RefreshConstraintBindings();
-                ApplyRuntimeConfigs();
-                _chain.ComputeChainLength();
-            }
-
-            // Seed solver state from current transforms (any external transform edits since the last
-            // solve are picked up here), then derive slider segment state from those solver positions.
-            // While speed-limited joints lag behind the previous solution, the solve continues from it.
-            SyncSolverStateForSolve(solveFromRestPose: false);
-            if (bindingsChanged)
-                BuildDOFs();
-            Solve();
-        }
-
-        private void Solve()
+        protected override SolveResult SolveChain(in IKGoal goal)
         {
             int endIdx = _jointCount - 1;
             int boneIdx = endIdx - 1; // last visible bone (the one we orient)
             bool useOri = orientationMode != OrientationMode.None;
 
             int iter = 0;
-            float totalError = ComputeError(endIdx, boneIdx, out Vector3 posError, out Vector3 oriError);
-            for (; iter < maxIterations; iter++)
+            float totalError = ComputeError(goal, endIdx, boneIdx, out Vector3 posError, out Vector3 oriError);
+            for (; iter < MaxIterations; iter++)
             {
-                if (totalError < tolerance)
+                if (totalError < Tolerance)
                     break;
 
                 Vector3 endEffectorPos = _joints[endIdx].SolverPosition;
@@ -238,36 +192,26 @@ namespace OpenIK
                 RebuildDownstreamPositions();
 
                 // Refresh the error so a final non-converged iteration reports its post-step error.
-                totalError = ComputeError(endIdx, boneIdx, out posError, out oriError);
+                totalError = ComputeError(goal, endIdx, boneIdx, out posError, out oriError);
             }
 
-            _output.Populate(_chain, iter, totalError, totalError < tolerance, writeEndRotation: true);
-
-            ApplyAndRaiseSolved();
+            return new SolveResult(iter, totalError);
         }
 
-        /// <summary>
-        /// Computes position and orientation error from the current solver state against
-        /// <see cref="target"/>. Returns (posError.magnitude + oriError.magnitude) as a single scalar.
-        /// </summary>
-        /// <remarks>
-        /// The position error magnitude is in meters; the orientation error magnitude is in radians,
-        /// pre-scaled by <see cref="orientationWeight"/>. The two are summed directly, so the return
-        /// value is a mixed-units scalar rather than a pure distance. The same scalar is compared
-        /// against <see cref="tolerance"/> for convergence — tuning <see cref="orientationWeight"/>
-        /// biases the convergence test toward position (lower) or orientation (higher). When
-        /// <see cref="orientationMode"/> is <see cref="OrientationMode.None"/>, <paramref name="oriError"/>
-        /// is zero and the scalar reduces to pure position error in meters.
-        /// </remarks>
-        private float ComputeError(int endIdx, int boneIdx, out Vector3 posError, out Vector3 oriError)
+        // Position and orientation error of the solver state against the goal, summed into one
+        // scalar. Position error is in metres; orientation error is in radians, scaled by
+        // orientationWeight. The sum is what the solver compares against Tolerance, so a higher
+        // orientation weight biases convergence toward orientation. With OrientationMode.None the
+        // orientation error is zero and the scalar is a plain distance.
+        private float ComputeError(in IKGoal goal, int endIdx, int boneIdx, out Vector3 posError, out Vector3 oriError)
         {
             Vector3 endEffectorPos = _joints[endIdx].SolverPosition;
-            posError = target.position - endEffectorPos;
+            posError = goal.Position - endEffectorPos;
             oriError = Vector3.zero;
 
             if (orientationMode == OrientationMode.FullRotation)
             {
-                Quaternion oriDelta = target.rotation * Quaternion.Inverse(_joints[boneIdx].SolverRotation);
+                Quaternion oriDelta = goal.Rotation * Quaternion.Inverse(_joints[boneIdx].SolverRotation);
                 if (oriDelta.w < 0f)
                 {
                     oriDelta.x = -oriDelta.x;
@@ -282,7 +226,7 @@ namespace OpenIK
             else if (orientationMode == OrientationMode.BoneDirection)
             {
                 Vector3 boneDir = (endEffectorPos - _joints[boneIdx].SolverPosition).normalized;
-                Vector3 desiredDir = target.forward;
+                Vector3 desiredDir = goal.Forward;
                 // Cross product gives axis and sin(angle), and a smooth error signal for the Jacobian to drive.
                 oriError = Vector3.Cross(boneDir, desiredDir) * orientationWeight;
             }
@@ -290,13 +234,11 @@ namespace OpenIK
             return posError.magnitude + oriError.magnitude;
         }
 
-        /// <summary>
-        /// Reads the actual orientation error from the transforms, matching <see cref="ComputeError"/>'s
-        /// orientation objective: the last bone's rotation for <see cref="OrientationMode.FullRotation"/>,
-        /// its direction for <see cref="OrientationMode.BoneDirection"/>.
-        /// </summary>
+        // Reads the actual orientation error from the transforms, matching ComputeError's objective:
+        // the last bone's rotation for FullRotation, its direction for BoneDirection.
         protected override float ComputeActualOrientationError()
         {
+            Transform target = Target;
             if (_jointCount < 2 || target == null)
                 return float.NaN;
 
@@ -313,10 +255,8 @@ namespace OpenIK
             }
         }
 
-        /// <summary>
-        /// Walks the chain from root-to-end and recomputes each joint's world solver position from
-        /// its parent's solver position/rotation and the segment's current local offset.
-        /// </summary>
+        // Recomputes each joint's solver position, root to end, from its parent's solver pose and the
+        // segment's current local offset.
         private void RebuildDownstreamPositions()
         {
             for (int i = 1; i < _jointCount; i++)
@@ -347,16 +287,19 @@ namespace OpenIK
             {
                 IAngularConstraint angular = _joints[i].Angular;
 
-                // Compute deviation in constraint frame.
-                Quaternion parentRotWorld = GetParentSolverRotation(i, out bool hasParent);
-                if (!hasParent) continue;
+                // A root without a parent transform has no frame to clamp against.
+                if (i == 0 && Chain.RootParentTransform == null)
+                    continue;
 
+                Quaternion parentRotWorld = Chain.GetParentSolverRotation(i);
                 Quaternion preRotation = _joints[i].SolverRotation;
                 Quaternion constraintDeviation = _joints[i].ToConstraintDeviation(parentRotWorld, preRotation);
 
                 Quaternion clamped = angular.ClampDeviation(constraintDeviation);
 
-                Quaternion postRotation = _joints[i].FromConstraintDeviation(parentRotWorld, clamped);
+                // Clamping converts the rotation into the joint's limit space and back with
+                // Quaternion.Inverse, which only works on unit-length quaternions, so normalize.
+                Quaternion postRotation = Quaternion.Normalize(_joints[i].FromConstraintDeviation(parentRotWorld, clamped));
                 _joints[i].SolverRotation = postRotation;
 
                 // Inherit any clamp-induced rotation delta onto descendants so their world rotations
@@ -369,50 +312,12 @@ namespace OpenIK
             }
         }
 
-        /// <summary>
-        /// Applies a world-space rotation delta to every joint downstream of <paramref name="jointIndex"/>.
-        /// Position propagation is handled separately by <see cref="RebuildDownstreamPositions"/>.
-        /// </summary>
+        // Applies a world-space rotation delta to every joint below jointIndex. Positions are rebuilt
+        // separately by RebuildDownstreamPositions.
         private void PropagateRotationDeltaDownstream(int jointIndex, Quaternion delta)
         {
             for (int i = jointIndex + 1; i < _jointCount; i++)
                 _joints[i].SolverRotation = delta * _joints[i].SolverRotation;
         }
-
-        /// <summary>
-        /// Gets the world rotation of the IK parent frame for a joint, reading from solver state.
-        /// </summary>
-        /// <param name="jointIndex">Index of the joint whose parent rotation is requested.</param>
-        /// <param name="hasParent">
-        /// True when a parent frame exists for the joint; false when the root joint has no IK parent
-        /// (the caller should skip clamping in that case to preserve prior behavior).
-        /// </param>
-        private Quaternion GetParentSolverRotation(int jointIndex, out bool hasParent)
-        {
-            int parentIdx = _joints[jointIndex].ParentIndex;
-            if (parentIdx >= 0)
-            {
-                hasParent = true;
-                return _joints[parentIdx].SolverRotation;
-            }
-
-            Transform rootParent = _chain.RootParentTransform;
-            if (rootParent != null)
-            {
-                hasParent = true;
-                return rootParent.rotation;
-            }
-
-            hasParent = false;
-            return Quaternion.identity;
-        }
-
-        [Header("Gizmos")]
-        [SerializeField] private GizmoDrawMode boneGizmoMode = GizmoDrawMode.SelectedOnly;
-        /// <summary> Gizmo rendering mode for joint bones in scene view. </summary>
-        public GizmoDrawMode BoneGizmoMode => boneGizmoMode;
-
-        /// <summary> Joint transforms resolved by the solver from first to end effector. </summary>
-        public IReadOnlyList<Transform> ChainJoints => chainJoints;
     }
 }

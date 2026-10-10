@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.Rendering;
@@ -6,25 +7,14 @@ namespace OpenIK.Editor
 {
     public static class SolverGizmos
     {
+        // Registered for the base type, so built-in and custom solvers all draw their chain.
         [DrawGizmo(GizmoType.Active | GizmoType.NonSelected | GizmoType.Selected)]
-        private static void DrawFABRIKGizmo(FABRIKSolver solver, GizmoType gizmoType)
+        private static void DrawSolverGizmo(OpenIKSolverBase solver, GizmoType gizmoType)
         {
             DrawBoneConnections(solver.transform, solver.BoneGizmoMode, solver.ChainJoints);
         }
 
-        [DrawGizmo(GizmoType.Active | GizmoType.NonSelected | GizmoType.Selected)]
-        private static void DrawJacobianGizmo(JacobianIKSolver solver, GizmoType gizmoType)
-        {
-            DrawBoneConnections(solver.transform, solver.BoneGizmoMode, solver.ChainJoints);
-        }
-
-        [DrawGizmo(GizmoType.Active | GizmoType.NonSelected | GizmoType.Selected)]
-        private static void DrawCCDGizmo(CCDIKSolver solver, GizmoType gizmoType)
-        {
-            DrawBoneConnections(solver.transform, solver.BoneGizmoMode, solver.ChainJoints);
-        }
-
-        private static void DrawBoneConnections(Transform solverTransform, GizmoDrawMode mode, System.Collections.Generic.IReadOnlyList<Transform> joints)
+        private static void DrawBoneConnections(Transform solverTransform, GizmoDrawMode mode, IReadOnlyList<Transform> joints)
         {
             if (joints == null || joints.Count < 2) return;
 

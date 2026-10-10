@@ -3,33 +3,42 @@ using UnityEngine;
 
 namespace OpenIK
 {
+    /// <summary>When the Scene view draws a gizmo.</summary>
     public enum GizmoDrawMode
     {
         Always,
         SelectedOnly
     }
 
+    /// <summary>Base class for joint components that add constraints and speed limits to a chain joint.</summary>
     public abstract class ConstrainedJoint : MonoBehaviour
     {
-        /// Quickly toggles whether this joint component's constraints are used in IK solving.
+        /// <summary>
+        /// Whether the solver uses this joint's constraints and speed limits. When false, the
+        /// transform stays in the chain without them.
+        /// </summary>
         [FormerlySerializedAs("useConstraints")]
         [Tooltip("Use this joint's constraints and speed limits during IK solving. Turning this off keeps the transform in the chain.")]
         public bool jointIsEnabled = true;
 
-        /// The initial Joint's transform rotation in World frame
+        /// <summary>The joint's world rotation when it was initialized.</summary>
         public Quaternion InitialWorldRotation { get; private set; }
 
-        /// The initial Joint's transform position in World frame
+        /// <summary>The joint's world position when it was initialized.</summary>
         public Vector3 InitialWorldPosition { get; private set; }
 
-        /// The joint's initial world rotation expressed in the IK parent's initial rotation frame.
+        /// <summary>The joint's rotation at initialization, relative to its IK parent's rotation at initialization.</summary>
         public Quaternion RestPoseRotation { get; private set; }
 
-        /// The joint's initial offset from its IK parent, in world units, expressed in the IK parent's initial rotation frame.
+        /// <summary>
+        /// The joint's offset from its IK parent at initialization, in world units, in the IK parent's
+        /// rotation frame at initialization.
+        /// </summary>
         public Vector3 RestPoseOffset { get; private set; }
 
-        /// The IK parent transform, set by the solver during initialization.
         private Transform _ikParentTransform;
+
+        /// <summary>The joint before this one in the IK chain. The solver sets it during initialization.</summary>
         public Transform IKParentTransform { get => _ikParentTransform; set => _ikParentTransform = value; }
 
         public void Initialize()
@@ -39,12 +48,10 @@ namespace OpenIK
             UpdateConstraints();
         }
 
-        /// <summary>
-        /// Refreshes any cached constraint data needed by this joint type.
-        /// </summary>
+        /// <summary>Refreshes the cached constraint data of this joint type.</summary>
         /// <remarks>
-        /// Called during initialization and before each solve. Derived classes decide which serialized
-        /// values must be checked and only recompute cached constraint data when those values changed.
+        /// The solver calls this during initialization and before each solve. Implementations should
+        /// recompute cached data only when the settings it depends on have changed.
         /// </remarks>
         public abstract void UpdateConstraints();
 
@@ -53,20 +60,25 @@ namespace OpenIK
             RestPoseRotation = Quaternion.Inverse(parentInitialRotation) * InitialWorldRotation;
         }
 
-        /// Saves the rest rotation and the rest offset from the IK parent.
+        /// <summary>Records the rest rotation and the rest offset from the IK parent.</summary>
+        /// <param name="parentInitialPosition">The IK parent's world position at initialization.</param>
+        /// <param name="parentInitialRotation">The IK parent's world rotation at initialization.</param>
         public void ComputeRestPose(Vector3 parentInitialPosition, Quaternion parentInitialRotation)
         {
             ComputeRestPose(parentInitialRotation);
             RestPoseOffset = Quaternion.Inverse(parentInitialRotation) * (InitialWorldPosition - parentInitialPosition);
         }
 
-        /// The local rotation that maps the transform's local forward vector to the joint's constraint-axis frame.
-        /// Each joint type defines and implements its own constraint frame (hinge axis, swing cone center, etc.).
+        /// <summary>
+        /// Local rotation from the transform's forward axis to the joint's constraint frame. Each joint
+        /// type defines its own frame, for example around the hinge axis or the center of the swing cone.
+        /// </summary>
         public virtual Quaternion LocalConstraintAxisRotation => Quaternion.identity;
 
-        /// Returns the world-space rotation representing the constraint rest frame.
-        /// During play, this is derived from the parent's current rotation + rest pose.
-        /// While editing, falls back to this joint's own rotation.
+        /// <summary>
+        /// Returns the world rotation of the joint's rest pose. In Play mode it follows the IK parent's
+        /// current rotation. In Edit mode it is the joint's own rotation.
+        /// </summary>
         public Quaternion GetConstraintBaseRotation()
         {
             if (_ikParentTransform != null && Application.isPlaying)
@@ -74,9 +86,10 @@ namespace OpenIK
             return transform.rotation;
         }
 
-        /// Returns the world-space position of the joint's rest pose.
-        /// During play, this is derived from the parent's current pose + rest pose.
-        /// While editing, falls back to this joint's own position.
+        /// <summary>
+        /// Returns the world position of the joint's rest pose. In Play mode it follows the IK parent's
+        /// current pose. In Edit mode it is the joint's own position.
+        /// </summary>
         public Vector3 GetConstraintBasePosition()
         {
             if (_ikParentTransform != null && Application.isPlaying)
@@ -88,31 +101,30 @@ namespace OpenIK
         [SerializeField] private GizmoDrawMode gizmoMode = GizmoDrawMode.SelectedOnly;
         public GizmoDrawMode GizmoMode => gizmoMode;
 
-        /// Moves this joint toward the solved pose at a capped speed instead of snapping to it.
+        /// <summary>When true, the joint moves toward the solved pose at a capped speed instead of snapping to it.</summary>
         [Tooltip("Move this joint toward the solved pose at a capped speed instead of snapping to it. " +
-                 "The end effector can then lag behind the IK target. Applies in Solve And Apply, or when scripts call ApplyLastOutput in Solve Only; " +
+                 "The end effector can then lag behind the IK target. Applies whenever the solver applies its solution; " +
                  "with Static Solver Configuration enabled, changes made after startup are ignored.")]
         public bool limitSpeed;
 
-        /// Maximum rotation speed relative to the IK parent, in degrees per second.
+        /// <summary>Maximum rotation speed relative to the IK parent, in degrees per second.</summary>
         [Tooltip("Maximum rotation speed relative to the IK parent, in degrees per second. " +
                  "Zero holds the joint still; its parent can still carry it.")]
         [Min(0f)] public float maxAngularSpeed = 90f;
 
-        /// Maximum travel speed along the slide axis, in metres per second.
+        /// <summary>Maximum travel speed along the slide axis, in metres per second.</summary>
         [Tooltip("Maximum travel speed along the slide axis, in metres per second. " +
                  "Zero holds the slide still; its parent can still carry it.")]
         [Min(0f)] public float maxLinearSpeed = 0.5f;
 
         /// <summary>
-        /// Degrees of freedom whose speed this joint type can limit. The Inspector shows only the
-        /// matching speed settings. Custom joint types return <see cref="JointMotionSupport.None"/>
-        /// unless their runtime constraints implement <see cref="IAngularMotionProvider"/> or
-        /// <see cref="ISegmentMotionProvider"/>.
+        /// The kinds of motion whose speed this joint type can limit. The Inspector shows only the
+        /// matching speed settings. Custom joint types return None unless their runtime constraints
+        /// implement <see cref="IAngularMotionProvider"/> or <see cref="ISegmentMotionProvider"/>.
         /// </summary>
         public virtual JointMotionSupport MotionSupport => JointMotionSupport.None;
 
-        /// Packages the current speed-limit settings for the solver's pose applier.
+        /// <summary>Returns the current speed-limit settings.</summary>
         public JointMotionLimit GetMotionLimit()
         {
             return new JointMotionLimit(limitSpeed, maxAngularSpeed, maxLinearSpeed);
@@ -128,10 +140,10 @@ namespace OpenIK
             return new FreeAngularConstraint();
         }
 
-        /// Copies this joint component's latest serialized segment settings into the bound runtime constraint.
+        /// <summary>Copies this component's current segment settings into its runtime segment constraint.</summary>
         public virtual void ApplySegmentConfig(ISegmentConstraint segment) {}
 
-        /// Copies this joint component's latest serialized angular settings into the bound runtime constraint.
+        /// <summary>Copies this component's current angular settings into its runtime angular constraint.</summary>
         public virtual void ApplyAngularConfig(IAngularConstraint angular) {}
     }
 }

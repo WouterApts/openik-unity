@@ -2,6 +2,10 @@ using UnityEngine;
 
 namespace OpenIK
 {
+    /// <summary>
+    /// Lets a joint slide along one axis between a minimum and a maximum travel, without rotating
+    /// relative to its IK parent.
+    /// </summary>
     public class SliderIKJoint : ConstrainedJoint
     {
         [Header("Slider Axis")]
@@ -24,13 +28,7 @@ namespace OpenIK
 
         public override JointMotionSupport MotionSupport => JointMotionSupport.Linear;
 
-        /// <summary>
-        /// Refreshes cached slider data when the slide axis or travel limits change.
-        /// </summary>
-        /// <remarks>
-        /// Recomputes the normalized slide axis and ordered min/max limits when
-        /// <see cref="slideAxis"/>, <see cref="minLength"/>, or <see cref="maxLength"/> changes.
-        /// </remarks>
+        // Recomputes the normalized axis and the ordered limits when the axis or a limit changes.
         public override void UpdateConstraints()
         {
             if (_cachedSlideAxis != slideAxis ||
@@ -66,7 +64,6 @@ namespace OpenIK
                 slider.ApplyConfig(BuildSegmentConfig());
         }
 
-        /// Packages the current slider settings for the runtime segment constraint.
         private SliderSegmentConstraint.Config BuildSegmentConfig()
         {
             return new SliderSegmentConstraint.Config(SlideAxisNormalized, MinLength, MaxLength);

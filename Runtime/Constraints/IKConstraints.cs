@@ -3,9 +3,10 @@ using UnityEngine;
 namespace OpenIK
 {
     // -- Interfaces --
+    /// <summary>Limits how a joint rotates away from its rest pose. A ConstrainedJoint creates one for the solver.</summary>
     public interface IAngularConstraint : IJacobianDofProvider
     {
-        /// Rest-pose data used when a runtime angular constraint is created or rebound.
+        /// <summary>Rest pose data for creating or rebinding an angular constraint.</summary>
         public readonly struct SetupData
         {
             public readonly Quaternion RestLocalRotation;
@@ -23,9 +24,13 @@ namespace OpenIK
         Quaternion ProjectDeviation(Quaternion deviation);
     }
 
+    /// <summary>
+    /// Limits a joint's offset from its IK parent, for example a fixed bone length or a slider.
+    /// A ConstrainedJoint creates one for the solver.
+    /// </summary>
     public interface ISegmentConstraint : IJacobianDofProvider
     {
-        /// Rest-pose data used when a runtime segment constraint is created or rebound.
+        /// <summary>Rest pose data for creating or rebinding a segment constraint.</summary>
         public readonly struct SetupData
         {
             public readonly Vector3 RestLocalOffset;
@@ -77,6 +82,7 @@ namespace OpenIK
 
 
     // -- Implementations --
+    /// <summary>Keeps a joint at its rest offset from its IK parent. Used for joints without a slider.</summary>
     public sealed class RigidSegmentConstraint : ISegmentConstraint
     {
         private Vector3 _restLocalOffset;
@@ -126,12 +132,14 @@ namespace OpenIK
         public void ApplyDofDelta(int dofIndex, float delta, in IJacobianDofProvider.Context context) { }
     }
 
+    /// <summary>Lets a joint slide along an axis within its travel limits. SliderIKJoint creates it.</summary>
     public sealed class SliderSegmentConstraint : ISegmentConstraint, ISegmentMotionProvider
     {
-        /// Distance in metres a starting offset may leave the slide axis or travel range before it counts as outside the limits.
+        // How far, in metres, a starting offset may lie off the slide axis or outside the travel range
+        // before it counts as outside the limits.
         private const float OutsideLimitsTolerance = 1e-3f;
 
-        /// Runtime configuration copied from a <see cref="SliderIKJoint"/> into its segment constraint.
+        /// <summary>Settings that a SliderIKJoint copies into its segment constraint.</summary>
         public readonly struct Config
         {
             public readonly Vector3 SlideAxisNormalized;
@@ -172,7 +180,7 @@ namespace OpenIK
         public float RestSlide => _restSlide;
         public float CurrentSlide => _currentSlide;
 
-        /// Updates slider limits while keeping the bound slide axis and rest offset stable.
+        /// <summary>Updates the travel limits. The slide axis and rest offset keep their values from setup.</summary>
         public void ApplyConfig(Config config)
         {
             _config = new Config(_config.SlideAxisNormalized, config.MinLength, config.MaxLength);
@@ -224,22 +232,13 @@ namespace OpenIK
             _currentSlide = ClampRelativeSlide(absoluteSlide - _restSlideOffset);
         }
 
-        /// <summary>
-        /// Moves the slide travel from <paramref name="currentLocalOffset"/> toward
-        /// <paramref name="desiredLocalOffset"/> by at most <paramref name="maxDistance"/> metres
-        /// along the slide axis, keeping the fixed lateral offset.
-        /// </summary>
-        /// <remarks>
-        /// Offsets are in the IK parent's rotation frame in world units, so travel is measured in
-        /// metres under the uniform scale captured at initialization. Only travel along the slide axis
-        /// spends the budget; a starting sideways displacement is removed immediately. Does not modify
-        /// the segment's runtime solver state.
-        /// </remarks>
         public float GetMotionDistance(Vector3 currentLocalOffset, Vector3 desiredLocalOffset)
         {
             return Mathf.Abs(Vector3.Dot(desiredLocalOffset - currentLocalOffset, _slideAxisParentLocal));
         }
 
+        // Only travel along the slide axis uses the budget. A sideways offset at the start is removed
+        // at once. Does not change the segment's solver state.
         public JointMotionStep StepLocalOffset(
             Vector3 currentLocalOffset,
             Vector3 desiredLocalOffset,
@@ -331,9 +330,10 @@ namespace OpenIK
         }
     }
 
+    /// <summary>Base class for the built-in angular constraints.</summary>
     public abstract class AngularConstraintBase : IAngularConstraint
     {
-        /// Angle in degrees a starting deviation may leave the constraint before it counts as outside the limits.
+        // How far, in degrees, a starting rotation may lie outside the limits before it counts as outside them.
         protected const float OutsideLimitsToleranceDegrees = 0.5f;
 
         public virtual bool NeedsCurrentDeviation => false;
@@ -355,6 +355,7 @@ namespace OpenIK
         }
     }
 
+    /// <summary>Allows any rotation. Used for joints without an angular limit.</summary>
     public sealed class FreeAngularConstraint : AngularConstraintBase
     {
         public override int DofCount => 3;
@@ -383,6 +384,7 @@ namespace OpenIK
         }
     }
 
+    /// <summary>Keeps a joint at its rest rotation relative to its IK parent. Used by slider joints.</summary>
     public sealed class FixedAngularConstraint : AngularConstraintBase
     {
         public override int DofCount => 0;
@@ -404,9 +406,10 @@ namespace OpenIK
         public override void ApplyDofDelta(int dofIndex, float delta, in IJacobianDofProvider.Context context) { }
     }
 
+    /// <summary>Limits rotation to one axis within an angle range. HingeIKJoint creates it.</summary>
     public sealed class HingeAngularConstraint : AngularConstraintBase, IAngularMotionProvider
     {
-        /// Runtime configuration copied from a <see cref="HingeIKJoint"/> into its angular constraint.
+        /// <summary>Settings that a HingeIKJoint copies into its angular constraint.</summary>
         public readonly struct Config
         {
             public readonly Vector3 HingeAxis;
@@ -440,7 +443,7 @@ namespace OpenIK
         public override int DofCount => 1;
         public Vector3 HingeAxis => _config.HingeAxis;
 
-        /// Updates hinge angle limits while keeping the bound hinge axis and constraint frame stable.
+        /// <summary>Updates the angle limits. The hinge axis and constraint frame keep their values from setup.</summary>
         public void ApplyConfig(Config config)
         {
             _config = new Config(
@@ -461,21 +464,12 @@ namespace OpenIK
             return HingeIKJoint.ProjectOntoHingePlane(deviation, _hingeAxisInLocalConstraintFrame);
         }
 
-        /// <summary>
-        /// Moves the signed hinge angle from <paramref name="currentDeviation"/> toward
-        /// <paramref name="desiredDeviation"/> by at most <paramref name="maxDegrees"/>.
-        /// </summary>
-        /// <remarks>
-        /// A restricted range always contains zero and lies within [-180, 180], so the direct
-        /// angular path between two in-range angles never crosses the forbidden arc. Only a
-        /// full-turn hinge wraps, along the shortest path (+180 on an exact tie). Only the hinge angle
-        /// spends the budget; starting off-axis rotation is removed immediately.
-        /// </remarks>
         public float GetMotionDistance(Quaternion currentDeviation, Quaternion desiredDeviation)
         {
             return Mathf.Abs(MeasureHingeTravel(currentDeviation, desiredDeviation, out _));
         }
 
+        // Only the hinge angle uses the budget. Rotation around other axes at the start is removed at once.
         public JointMotionStep StepDeviation(
             Quaternion currentDeviation,
             Quaternion desiredDeviation,
@@ -503,7 +497,10 @@ namespace OpenIK
 
         private bool IsFullTurn => _config.MinAngle <= -180f && _config.MaxAngle >= 180f;
 
-        /// Signed hinge travel from the current to the desired deviation along the legal path.
+        // Signed hinge travel from the current to the desired angle, staying inside the range. A
+        // restricted range contains zero and lies within -180 to 180, so moving straight between two
+        // angles inside it never leaves it. Only a full-turn hinge wraps around, the shorter way
+        // (+180 on an exact tie).
         private float MeasureHingeTravel(Quaternion currentDeviation, Quaternion desiredDeviation, out float currentAngle)
         {
             Vector3 axis = _hingeAxisInLocalConstraintFrame;
@@ -516,7 +513,7 @@ namespace OpenIK
             return UnwrapIntoRange(desiredAngle) - currentAngle;
         }
 
-        /// Maps an angle at the +/-180 seam onto the side that lies inside a restricted range.
+        // Replaces an angle near ±180 with the equal angle, 360 degrees apart, that lies inside the range.
         private float UnwrapIntoRange(float angle)
         {
             if (angle > _config.MaxAngle && angle - 360f >= _config.MinAngle)
@@ -545,9 +542,10 @@ namespace OpenIK
         }
     }
 
+    /// <summary>Limits swing to a cone and twist to a range. BallSocketIKJoint creates it.</summary>
     public sealed class BallSocketAngularConstraint : AngularConstraintBase, IAngularMotionProvider
     {
-        /// Runtime configuration copied from a <see cref="BallSocketIKJoint"/> into its angular constraint.
+        /// <summary>Settings that a BallSocketIKJoint copies into its angular constraint.</summary>
         public readonly struct Config
         {
             public readonly Quaternion ConstraintAxisRotation;
@@ -579,7 +577,7 @@ namespace OpenIK
         public override bool NeedsCurrentDeviation => true;
         public override int DofCount => 3;
 
-        /// Updates ball-socket limits while keeping the bound constraint frame stable.
+        /// <summary>Updates the swing and twist limits. The constraint frame keeps its value from setup.</summary>
         public void ApplyConfig(Config config)
         {
             _config = new Config(
@@ -599,32 +597,23 @@ namespace OpenIK
             return clampedSwing * clampedTwist;
         }
 
-        /// <summary>
-        /// Degrees the joint turns along the path <see cref="StepDeviation"/> follows. Inside the
-        /// limits this is the length of the legal swing/twist path, which can be much longer than
-        /// the shortest rotation when the twist range forces the long way around.
-        /// </summary>
+        // Inside the limits this is the length of the allowed swing and twist path. It can be much longer
+        // than the shortest rotation when the twist range forces the long way around.
         public float GetMotionDistance(Quaternion currentDeviation, Quaternion desiredDeviation)
         {
             if (!IsWithinLimits(currentDeviation))
                 return Quaternion.Angle(currentDeviation, desiredDeviation);
 
-            return MeasureLegalPath(currentDeviation, desiredDeviation, out _, out _, out _, out _);
+            return MeasureAllowedPath(currentDeviation, desiredDeviation, out _, out _, out _, out _);
         }
 
-        /// Times the step parameter is halved when the cone clamp pushes a step past its budget.
+        // How many times a step is halved when clamping to the cone pushes it past its budget.
         private const int ClampBudgetRetries = 8;
 
-        /// <summary>
-        /// Moves <paramref name="currentDeviation"/> toward <paramref name="desiredDeviation"/> by at
-        /// most <paramref name="maxDegrees"/> along the legal swing/twist path.
-        /// </summary>
-        /// <remarks>
-        /// Swing and twist change together at steady rates, so the joint turns at the same speed along
-        /// the whole path. A budget of <c>maxDegrees</c> covers <c>maxDegrees / pathLength</c> of the path.
-        /// If the swing would leave the cone partway, it is pulled back to the edge. A joint that starts
-        /// outside its limits moves straight toward the target instead, and the step reports it.
-        /// </remarks>
+        // Swing and twist change together at steady rates, so the joint turns at one speed along the
+        // whole path, and a budget of maxDegrees covers maxDegrees / pathLength of it. A swing that would
+        // leave the cone partway is pulled back to its edge. A joint that starts outside its limits moves
+        // straight toward the target instead, and the step reports that.
         public JointMotionStep StepDeviation(
             Quaternion currentDeviation,
             Quaternion desiredDeviation,
@@ -643,7 +632,7 @@ namespace OpenIK
                 return new JointMotionStep(JointMotionStatus.Limited, true);
             }
 
-            float pathLength = MeasureLegalPath(
+            float pathLength = MeasureAllowedPath(
                 currentDeviation,
                 desiredDeviation,
                 out Quaternion currentSwing,
@@ -664,33 +653,27 @@ namespace OpenIK
             }
 
             float t = maxDegrees / pathLength;
-            appliedDeviation = EvaluateLegalPath(currentSwing, desiredSwing, currentTwist, twistDelta, t);
+            appliedDeviation = EvaluateAllowedPath(currentSwing, desiredSwing, currentTwist, twistDelta, t);
 
             // The unclamped path never exceeds the budget; only the cone clamp can, so back off if it did.
             for (int i = 0; i < ClampBudgetRetries && Quaternion.Angle(currentDeviation, appliedDeviation) > maxDegrees + 1e-3f; i++)
             {
                 t *= 0.5f;
-                appliedDeviation = EvaluateLegalPath(currentSwing, desiredSwing, currentTwist, twistDelta, t);
+                appliedDeviation = EvaluateAllowedPath(currentSwing, desiredSwing, currentTwist, twistDelta, t);
             }
 
-            bool madeProgress = MeasureLegalPath(appliedDeviation, desiredDeviation, out _, out _, out _, out _)
+            bool madeProgress = MeasureAllowedPath(appliedDeviation, desiredDeviation, out _, out _, out _, out _)
                 < pathLength - 1e-4f;
             return new JointMotionStep(
                 madeProgress ? JointMotionStatus.Limited : JointMotionStatus.Blocked,
                 false);
         }
 
-        /// <summary>
-        /// Splits both deviations into swing and twist and returns the length in degrees of the legal
-        /// path between them: swing slerps, twist moves along its allowed arc.
-        /// </summary>
-        /// <remarks>
-        /// Swing and twist both change at a steady rate, so the joint turns at one constant speed from
-        /// start to end, and the path length equals that speed. The speed is the swing rotation (angle θs
-        /// around axis a) plus the twist rotation (Δτ around the twist axis f), added as vectors:
-        /// <c>|θs·a + Δτ·f|</c>.
-        /// </remarks>
-        private float MeasureLegalPath(
+        // Length in degrees of the allowed path between two rotations: the swing slerps and the twist
+        // moves along its allowed arc. Both change at steady rates, so the length is the swing rotation
+        // (angle θs around axis a) plus the twist rotation (Δτ around the twist axis f), added as
+        // vectors: |θs·a + Δτ·f|.
+        private float MeasureAllowedPath(
             Quaternion currentDeviation,
             Quaternion desiredDeviation,
             out Quaternion currentSwing,
@@ -725,7 +708,7 @@ namespace OpenIK
             return (swingVelocity + Vector3.forward * twistDelta).magnitude;
         }
 
-        private Quaternion EvaluateLegalPath(
+        private Quaternion EvaluateAllowedPath(
             Quaternion currentSwing,
             Quaternion desiredSwing,
             float currentTwist,

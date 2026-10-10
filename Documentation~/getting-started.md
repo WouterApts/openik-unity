@@ -15,6 +15,17 @@ transform hierarchy than the next joint; equal depths are allowed.
 
 Compare solvers in the [core reference](core-reference.md#solvers).
 
+## Choose when the solver runs
+
+The **Execution** section at the top of the solver's Inspector has two settings:
+
+- **Update Mode:** **LateUpdate** runs the solver every frame. **Manual** waits for your script to call it.
+- **Apply Mode:** **Automatic** moves the chain to each solution. **Manual** only calculates the solution,
+  so your script can read it or apply it later.
+
+The defaults, LateUpdate and Automatic, suit most chains. See
+[Execution settings](core-reference.md#execution-settings) for details and scripting.
+
 ## Add constraints
 
 - `HingeIKJoint`: rotation around one axis.
@@ -25,7 +36,7 @@ Add these to GameObjects that you want to act like constrained joints and set th
 
 ## Limit speed
 
-When Pose and Apply is enabled, you can enable **Limit Speed** under **Motion**. Set **Max Angular Speed** in degrees per second,
+Enable **Limit Speed** under **Motion** on a joint. Set **Max Angular Speed** in degrees per second,
 or **Max Linear Speed** in metres per second for sliders. Joints can then lag behind the target.
 
 For smooth motion between two poses, you can try enabling **Synchronize Limited Joints** on

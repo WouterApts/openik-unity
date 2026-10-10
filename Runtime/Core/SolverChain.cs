@@ -14,6 +14,13 @@ namespace OpenIK
     {
         public SolverJoint[] Joints { get; private set; } = System.Array.Empty<SolverJoint>();
         public Transform RootParentTransform { get; private set; }
+
+        /// <summary>
+        /// World rotation of <see cref="RootParentTransform"/>, or identity without one. Captured each
+        /// time the solver state is synced, so a solve never reads it from the scene mid-solve.
+        /// </summary>
+        public Quaternion RootParentRotation { get; private set; } = Quaternion.identity;
+
         public float ChainLength { get; private set; }
 
         public int Count => Joints.Length;
@@ -55,6 +62,7 @@ namespace OpenIK
             }
 
             RootParentTransform = Joints.Length > 0 ? Joints[0].Transform.parent : null;
+            CaptureRootParentRotation();
 
             foreach (SolverJoint joint in Joints)
                 joint.ConstrainedJoint?.Initialize();
@@ -152,6 +160,7 @@ namespace OpenIK
         /// </summary>
         public void SyncSolverStateFromTransforms()
         {
+            CaptureRootParentRotation();
             for (int i = 0; i < Joints.Length; i++)
             {
                 Joints[i].SolverPosition = Joints[i].Transform.position;
@@ -172,8 +181,8 @@ namespace OpenIK
             if (Joints.Length == 0)
                 return;
 
-            Quaternion rootParentRotation = RootParentTransform != null ? RootParentTransform.rotation : Quaternion.identity;
-            Joints[0].SolverRotation = rootParentRotation * Joints[0].RestLocalRotation;
+            CaptureRootParentRotation();
+            Joints[0].SolverRotation = RootParentRotation * Joints[0].RestLocalRotation;
             Joints[0].SolverPosition = Joints[0].Transform.position;
 
             for (int i = 1; i < Joints.Length; i++)
@@ -186,28 +195,33 @@ namespace OpenIK
             }
         }
 
-        /// <summary>
-        /// Rebuilds every joint's solver pose from per-joint poses relative to the IK parent, anchored
-        /// at the root's current transform position and the current root-parent rotation, then syncs
-        /// segment runtime state from the result.
-        /// </summary>
-        /// <param name="localRotations">Each joint's rotation relative to its IK parent (the root parent for the root).</param>
-        /// <param name="localOffsets">Each joint's offset from its IK parent in the parent's rotation frame. Index 0 is ignored.</param>
-        public void SyncSolverStateFromLocalPose(IReadOnlyList<Quaternion> localRotations, IReadOnlyList<Vector3> localOffsets)
+        // Sets the solver state to a previous solve's output, keeping each joint's pose relative to its
+        // IK parent. The pose is placed at the root's current position and the current root-parent
+        // rotation, so it follows the chain if its base moved since that solve. solvedRootParentRotation
+        // is the root-parent rotation the output was solved with. The output must match this chain.
+        internal void SyncSolverStateFromOutput(IKSolverOutput output, Quaternion solvedRootParentRotation)
         {
             if (Joints.Length == 0)
                 return;
 
-            Quaternion rootParentRotation = RootParentTransform != null ? RootParentTransform.rotation : Quaternion.identity;
-            Joints[0].SolverRotation = rootParentRotation * localRotations[0];
+            IReadOnlyList<Vector3> positions = output.WorldPositions;
+            IReadOnlyList<Quaternion> rotations = output.WorldRotations;
+
+            Quaternion rootLocalRotation = Quaternion.Normalize(Quaternion.Inverse(solvedRootParentRotation) * rotations[0]);
+            CaptureRootParentRotation();
+            Joints[0].SolverRotation = RootParentRotation * rootLocalRotation;
             Joints[0].SolverPosition = Joints[0].Transform.position;
 
             for (int i = 1; i < Joints.Length; i++)
             {
                 int parentIdx = Joints[i].ParentIndex;
-                Joints[i].SolverRotation = Joints[parentIdx].SolverRotation * localRotations[i];
+                Quaternion solvedParentRotation = rotations[parentIdx];
+                Quaternion localRotation = Quaternion.Normalize(Quaternion.Inverse(solvedParentRotation) * rotations[i]);
+                Vector3 localOffset = Quaternion.Inverse(solvedParentRotation) * (positions[i] - positions[parentIdx]);
+
+                Joints[i].SolverRotation = Joints[parentIdx].SolverRotation * localRotation;
                 Joints[i].SolverPosition = Joints[parentIdx].SolverPosition
-                    + Joints[parentIdx].SolverRotation * localOffsets[i];
+                    + Joints[parentIdx].SolverRotation * localOffset;
             }
 
             SyncSegmentsFromSolverPositions();
@@ -254,6 +268,39 @@ namespace OpenIK
                 currentIdx = childIdx;
                 childIdx = currentIdx + 1;
             }
+        }
+
+        /// <summary>
+        /// World rotation of the IK parent frame of joint <paramref name="jointIndex"/>, from solver
+        /// state: the parent joint's solver rotation, or <see cref="RootParentRotation"/> for the root.
+        /// </summary>
+        public Quaternion GetParentSolverRotation(int jointIndex)
+        {
+            int parentIdx = Joints[jointIndex].ParentIndex;
+            return parentIdx >= 0 ? Joints[parentIdx].SolverRotation : RootParentRotation;
+        }
+
+        /// <summary>
+        /// Rebuilds every solver rotation from its forward and up axes. Iterative solvers call this
+        /// after each iteration so floating-point drift from many small rotations does not build up.
+        /// </summary>
+        public void ReconstructRotations()
+        {
+            for (int i = 0; i < Joints.Length; i++)
+            {
+                Quaternion q = Joints[i].SolverRotation;
+                Vector3 forward = q * Vector3.forward;
+                Vector3 up = q * Vector3.up;
+
+                // LookRotation needs meaningful axes; skip degenerate rotations instead of normalizing noise.
+                if (forward.sqrMagnitude > 0.001f && up.sqrMagnitude > 0.001f)
+                    Joints[i].SolverRotation = Quaternion.LookRotation(forward, up);
+            }
+        }
+
+        private void CaptureRootParentRotation()
+        {
+            RootParentRotation = RootParentTransform != null ? RootParentTransform.rotation : Quaternion.identity;
         }
 
         /// The transform that acts as the IK parent during setup (unity-parent for root, previous joint otherwise).
