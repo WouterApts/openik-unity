@@ -13,21 +13,14 @@ https://github.com/user-attachments/assets/124f04d5-e9f4-4067-ba43-f49f7a5b3c19
 
 ## What's included
 
-- **Solvers:** FABRIK and CCD solve for position, while damped least-squares Jacobian also handles orientation.
-  Connected chains with separate targets for each branch can be solved using Multi-FABRIK.
-- **Joint constraints:** hinge rotation limits, ball-and-socket swing/twist limits,
-  and slider travel limits.
-- **Joint speed:** cap how fast each joint moves by setting its angular or
-  linear speed.
-- **Poles:** make an elbow or knee bend toward a pole target, in any solver.
-- **Execution control:** let solvers run and move the chain every frame, or call
-  them from your own scripts and decide when the result is applied.
-- **Editor tools:** intuitive component inspectors and constraint gizmos.
-- **Importable examples:** basic chains, a robotic painting arm, and a walking
-  spider, with shared models, materials, and terrain.
-- **Documentation and tests:** setup guide, solver/API reference, and optional
-  EditMode regression tests.
-
+- **Solvers:** FABRIK and CCD for position solving. Damped least-squares Jacobian for position and orientation. Multi-FABRIK for branching chains with separate targets.
+- **Joint constraints:** Hinge angle limits, ball-and-socket swing/twist limits, and slider travel limits.
+- **Joint speed limits:** Cap each joint's angular or linear speed.
+- **Pole targets:** Control elbow and knee bend directions with pole targets, supported by all solvers.
+- **Execution control:** Automatic per-frame solving or manual control from scripts, including when results are applied.
+- **Editor tools:** Intuitive component inspectors and constraint gizmos.
+- **Examples:** Ready-to-import scenes featuring basic IK chains, a robotic painting arm, and a walking spider, with shared models, materials, and terrain.
+- **Documentation and tests:** Setup guide, solver and API reference, and optional EditMode regression tests.
 
 ## Requirements
 
