@@ -3,9 +3,9 @@ using UnityEngine;
 namespace OpenIK
 {
     /// <summary>Limits a joint's swing to a cone around an axis, and its twist around that axis.</summary>
+    [AddComponentMenu("OpenIK/Ball Socket IK Joint", 11)]
     public class BallSocketIKJoint : ConstrainedJoint
     {
-        [Header("Constraint Axis")]
         [Tooltip("The local-space direction of the constraint axis (center of the swing cone). Z-forward is default.")]
         public Vector3 constraintAxis = Vector3.forward;
 

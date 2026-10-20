@@ -38,3 +38,7 @@ Source~/
 *.blend2
 .DS_Store
 Thumbs.db
+
+# Local developer documents
+/Developer/
+/Developer.meta

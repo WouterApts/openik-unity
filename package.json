@@ -1,6 +1,6 @@
 {
   "name": "com.wouterapts.openik",
-  "version": "0.3.0",
+  "version": "0.9.0",
   "displayName": "OpenIK",
   "description": "Inverse kinematics solvers and joint constraints for Unity.",
   "unity": "6000.0",
@@ -12,7 +12,8 @@
   "documentationUrl": "https://github.com/WouterApts/openik-unity/blob/main/Documentation~/getting-started.md",
   "licensesUrl": "https://github.com/WouterApts/openik-unity/blob/main/LICENSE.md",
   "dependencies": {
-    "com.unity.mathematics": "1.3.3"
+    "com.unity.mathematics": "1.3.3",
+    "com.unity.modules.physics": "1.0.0"
   },
   "keywords": [
     "ik",
@@ -33,7 +34,7 @@
     },
     {
       "displayName": "Sample Chains",
-      "description": "Human Arm and Basic Chains scenes with OpenIK chain and constraint examples. Requires the Shared Assets sample and the Universal Render Pipeline (URP).",
+      "description": "Basic Chains with single-chain solvers, and Multi FABRIK Chains with rigid and point junction rigs combining slider, hinge, and ball-socket limits. Requires the Shared Assets sample and the Universal Render Pipeline (URP).",
       "path": "Samples~/Sample Chains"
     },
     {

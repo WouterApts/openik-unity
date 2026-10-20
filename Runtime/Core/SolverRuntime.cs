@@ -27,6 +27,7 @@ namespace OpenIK
         private Vector3[] _positions = Array.Empty<Vector3>();
         private Quaternion[] _rotations = Array.Empty<Quaternion>();
         private bool[] _requiresExplicitPosition = Array.Empty<bool>();
+        private bool[] _writesRotation = Array.Empty<bool>();
         private Transform[] _chainTransforms = Array.Empty<Transform>();
         private int _jointCount;
         private bool _writeEndRotation;
@@ -68,6 +69,13 @@ namespace OpenIK
         public bool WriteEndRotation => _writeEndRotation;
 
         /// <summary>
+        /// Per-joint flag: true when applying writes the joint's rotation. That is every joint with
+        /// children, and also the joints without children, such as the end joint, when
+        /// <see cref="WriteEndRotation"/> is true.
+        /// </summary>
+        public IReadOnlyList<bool> WritesRotation => _writesRotation;
+
+        /// <summary>
         /// Fills the internal buffers from <paramref name="chain"/>'s solver state and records
         /// convergence statistics. Resizes only when the chain length changed; otherwise overwrites
         /// the existing buffers in place.
@@ -84,6 +92,7 @@ namespace OpenIK
                 _positions[i] = joint.SolverPosition;
                 _rotations[i] = joint.SolverRotation;
                 _requiresExplicitPosition[i] = joint.Segment != null && joint.Segment.RequiresExplicitTransformPosition;
+                _writesRotation[i] = writeEndRotation || !chain.IsLeaf(i);
                 _chainTransforms[i] = joint.Transform;
             }
 
@@ -94,9 +103,9 @@ namespace OpenIK
         }
 
         /// <summary>
-        /// Applies this output to <paramref name="transforms"/>. Writes the root position, every
-        /// non-end joint's rotation (and the end joint's rotation when <see cref="WriteEndRotation"/>
-        /// is true), and any slider segments' world-space positions.
+        /// Applies this output to <paramref name="transforms"/>. Writes the root position, the
+        /// rotation of every joint marked in <see cref="WritesRotation"/>, and any slider segments'
+        /// world-space positions.
         /// </summary>
         /// <param name="transforms">Target transform list, root-to-end. Length must match <see cref="JointCount"/>.</param>
         public void ApplyTo(IList<Transform> transforms)
@@ -112,9 +121,12 @@ namespace OpenIK
 
             transforms[0].position = _positions[0];
 
-            int rotationLoopEnd = _writeEndRotation ? _jointCount : endIdx;
-            for (int i = 0; i < rotationLoopEnd; i++)
-                transforms[i].rotation = _rotations[i];
+            // Parents come before their children, so each joint is turned after its parent.
+            for (int i = 0; i < _jointCount; i++)
+            {
+                if (_writesRotation[i])
+                    transforms[i].rotation = _rotations[i];
+            }
 
             for (int i = 1; i <= endIdx; i++)
             {
@@ -155,6 +167,7 @@ namespace OpenIK
             Array.Resize(ref _positions, count);
             Array.Resize(ref _rotations, count);
             Array.Resize(ref _requiresExplicitPosition, count);
+            Array.Resize(ref _writesRotation, count);
             Array.Resize(ref _chainTransforms, count);
         }
     }
@@ -334,13 +347,16 @@ namespace OpenIK
             MonoBehaviour solver,
             string solverName,
             Transform target,
-            IReadOnlyList<Transform> chainJoints)
+            IReadOnlyList<Transform> chainJoints,
+            int requiredJointCount = 0)
         {
             string error = null;
             if (target == null)
                 error = "target is not assigned.";
             else if (chainJoints == null || chainJoints.Count < 2)
                 error = "at least two chain joints are required.";
+            else if (requiredJointCount > 0 && chainJoints.Count != requiredJointCount)
+                error = $"exactly {requiredJointCount} chain joints are required.";
             else
             {
                 for (int i = 0; i < chainJoints.Count; i++)
@@ -376,7 +392,7 @@ namespace OpenIK
                 {
                     Debug.LogError(
                         $"[OpenIK] {solverName}: invalid joint order. \"{chainJoints[i - 1].name}\" (depth {parentDepth}) is deeper in the hierarchy than " +
-                        $"\"{chainJoints[i].name}\" (depth {childDepth}). List Chain Joints from the root to the end effector.",
+                        $"\"{chainJoints[i].name}\" (depth {childDepth}). List Joints from the root to the end effector.",
                         solver);
                 }
             }

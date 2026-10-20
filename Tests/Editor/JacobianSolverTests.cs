@@ -34,14 +34,14 @@ namespace OpenIK.Editor.Tests
                 var solver = root.AddComponent<JacobianIKSolver>();
                 solver.Target = target.transform;
                 solver.UpdateMode = UpdateMode.Manual;
-                typeof(OpenIKSolverBase)
+                typeof(SingleChainSolverBase)
                     .GetField("chainJoints", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
                     .SetValue(solver, joints);
 
                 for (int frame = 0; frame < 120; frame++)
                     solver.Step(1f / 60f);
 
-                IKSolverOutput output = solver.LastOutput;
+                IKSolverOutput output = solver.LastSolution;
                 Assert.That(float.IsNaN(output.FinalError), Is.False, "The solve returned NaN.");
                 for (int i = 0; i < output.JointCount; i++)
                 {

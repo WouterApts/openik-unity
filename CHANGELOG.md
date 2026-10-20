@@ -2,6 +2,83 @@
 
 This file lists the notable changes in each OpenIK release.
 
+## [0.9.0] - 2026-10-20
+
+### Breaking changes
+
+- `SingleChainSolverBase` now holds Target, ChainJoints, Poles, and Tolerance, with `AddPole`,
+  `RemovePole`, `ApplyPoles`, and `TryGetPoleDirection`. The FABRIK, CCD, Jacobian, and Two Bone
+  solvers derive from it. `OpenIKSolverBase` keeps the update, solve, apply, and output code that
+  every solver shares. A custom solver for one chain derives from `SingleChainSolverBase` and still
+  overrides `SolveChain(in IKGoal goal)`. Scripts that read Target, ChainJoints, Poles, or Tolerance
+  through an `OpenIKSolverBase` reference use `SingleChainSolverBase` instead. Saved scenes keep
+  their settings.
+
+### Added
+
+- `LastSolution` is the primary property for reading a solver's computed pose and convergence statistics.
+  `LastOutput` remains available as a compatibility alias and returns the same result.
+
+- `TwoBoneIKSolver.EndRotationOffset` exposes the end joint's rotation relative to the target, captured at
+  initialization, so scripts can turn the end joint to an exact rotation with Match Target.
+- `MultiFABRIKSolver`: a tree of position-targeted FABRIK chains with rigid branch offsets, Pull,
+  Pin, Root Pin, joint constraints, per-chain poles and results, and runtime chain edits. Each chain
+  is a `MultiFABRIKChain` component, shown as FABRIK Chain, on the joint it starts from. Drag the
+  chains into the solver's Chains list, where each item also sets that chain's target, junction,
+  Pull, and Pin; the solver sorts them into the tree. The chain Inspector shows the solver that
+  lists it, its place in the tree, and its junction. The solver warns when another OpenIK solver
+  moves the same joints. Scene view gizmos show branches and targets, and highlight the chains on a
+  selected joint.
+- Sample Chains has a new `Multi FABRIK Chains.unity` scene with a Multi FABRIK rig: two arms on a
+  shared sliding lift, with the right arm splitting into an upper and a lower arm. It combines
+  slider, hinge, and ball-socket restrictions, with a separate target for each of the three hands.
+- Point junctions in the same solver. Each chain's **Junction Mode** setting chooses Rigid or Point at
+  its first joint. Point branch pivots share an attachment position and rotate independently, with
+  optional per-branch limits. The chain Inspector shows the complete numbered chain used by the
+  solver: joint 0 is the component's transform, and joint 1 is the pivot in Point mode. Author the
+  hierarchy and assign joints manually; switching modes preserves both. The Scene view draws the
+  first bone of a Rigid branch as a dotted line. Multi FABRIK Chains includes a point rig beside the rigid rig.
+
+- A solver that sets up its own joints can derive from `OpenIKSolverBase` directly and implement
+  `ValidateSetup`, `BuildChain`, `HasGoal`, `SolveChain()`, `IsConverged`, and
+  `ComputeActualPositionError`. `SolverChain.Initialize` accepts parent indices to build a tree
+  of joints.
+
+- **FixedUpdate** Update Mode: the solver steps in `FixedUpdate` with `Time.fixedDeltaTime`,
+  in sync with physics. **LateUpdate** stays the default.
+
+- Interpolate, shown with FixedUpdate and on by default, smooths the chain between fixed steps
+  like Rigidbody interpolation. Scripts can set it through the `Interpolate` property.
+
+- Poles for all solvers: a **Poles** foldout below Joints makes a middle joint, such as an
+  elbow or knee, bend toward a pole target while the solver solves the whole chain. Next to a
+  hinge or slider, a pole's section extends to the nearest joint that can twist. Joint limits
+  take priority, and a pole never moves the end effector. Scripts use `AddPole`, `RemovePole`,
+  and `IKPole`.
+
+- `TwoBoneIKSolver`: an analytic solver for three-joint arms and legs. **End Rotation** can match
+  the target's rotation or align a foot to a surface, and **Softness** keeps the middle joint
+  from snapping straight.
+
+- Basic Chains has two new chains: a two-bone leg with a knee pole and a foot that follows a
+  tilted ground plate, and a FABRIK chain with two poles.
+
+- `SolverPoseRegressionTests` covers poles and the two-bone solver. The existing baseline
+  entries are unchanged; the new scenarios were recorded and appended.
+
+### Changed
+
+- Multi FABRIK projects tree joint limits consistently during iteration and final pose rebuilding,
+  avoiding a small residual error caused by different constraint tolerances in those two steps.
+
+- Sample Chains no longer has the outdated Human Arm scene. Basic Chains has a shoulder and elbow
+  chain.
+
+- Moved the Spider Valley terrain and `ThirdPersonFollowCamera` into Shared Assets, preserving
+  their GUIDs. The camera no longer searches for a spider when no target is assigned.
+
+- The sample input reads Shift as a run key.
+
 ## [0.3.0] - 2026-10-10
 
 ### Breaking changes
@@ -127,6 +204,7 @@ This file lists the notable changes in each OpenIK release.
 
 First release! 
 
+[0.9.0]: https://github.com/WouterApts/openik-unity/compare/v0.3.0...v0.9.0
 [0.3.0]: https://github.com/WouterApts/openik-unity/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/WouterApts/openik-unity/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/WouterApts/openik-unity/releases/tag/v0.1.0

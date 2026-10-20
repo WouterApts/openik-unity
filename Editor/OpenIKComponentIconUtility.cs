@@ -7,16 +7,19 @@ namespace OpenIK.Editor
     [InitializeOnLoad]
     internal static class OpenIKComponentIconUtility
     {
-        private const string SessionStateKey = "OpenIK.ComponentIconsApplied";
+        private const string SessionStateKey = "OpenIK.ComponentIconsApplied.MultiFABRIK";
 
         private static readonly IconBinding[] IconBindings =
         {
             new("Runtime/Constraints/BallSocketIKJoint.cs", "Editor/Icons/Ball IKJoint Logo.png"),
             new("Runtime/Solvers/CCDIKSolver.cs", "Editor/Icons/CCD Solver Logo.png"),
             new("Runtime/Solvers/FABRIKSolver.cs", "Editor/Icons/FABRIK Solver Logo.png"),
+            new("Runtime/Solvers/MultiFABRIKSolver.cs", "Editor/Icons/Multi FABRIK Solver.png"),
+            new("Runtime/Solvers/MultiFABRIKChain.cs", "Editor/Icons/Multi FABRIK Chain.png"),
             new("Runtime/Constraints/HingeIKJoint.cs", "Editor/Icons/Hinge IKJoint Logo.png"),
             new("Runtime/Constraints/SliderIKJoint.cs", "Editor/Icons/Prismatic IKJoint Logo.png"),
-            new("Runtime/Solvers/JacobianIKSolver.cs", "Editor/Icons/Jacobian Solver Logo.png")
+            new("Runtime/Solvers/JacobianIKSolver.cs", "Editor/Icons/Jacobian Solver Logo.png"),
+            new("Runtime/Solvers/TwoBoneIKSolver.cs", "Editor/Icons/Two Bone IK Solver.png")
         };
 
         static OpenIKComponentIconUtility()

@@ -2,7 +2,8 @@
   "name": "OpenIK.Editor.Tests",
   "rootNamespace": "OpenIK.Editor.Tests",
   "references": [
-    "OpenIK.Runtime"
+    "OpenIK.Runtime",
+    "OpenIK.Editor"
   ],
   "includePlatforms": [
     "Editor"

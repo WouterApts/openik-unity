@@ -6,9 +6,9 @@ namespace OpenIK
     /// Lets a joint slide along one axis between a minimum and a maximum travel, without rotating
     /// relative to its IK parent.
     /// </summary>
+    [AddComponentMenu("OpenIK/Slider IK Joint", 12)]
     public class SliderIKJoint : ConstrainedJoint
     {
-        [Header("Slider Axis")]
         [Tooltip("The local-space axis along which the joint can translate.")]
         public Vector3 slideAxis = Vector3.forward;
 

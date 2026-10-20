@@ -11,6 +11,10 @@ namespace OpenIK.Editor
     [CustomEditor(typeof(ConstrainedJoint), true)]
     public class ConstrainedJointEditor : UnityEditor.Editor
     {
+        private bool _showGizmos;
+        private SerializedProperty _gizmoMode;
+        private SerializedProperty _rangeSize;
+
         private static readonly GUIContent MaxAngularSpeedLabel = new(
             "Max Angular Speed (°/s)",
             "Maximum rotation speed relative to the IK parent, in degrees per second. Zero holds the joint still; its parent can still carry it.");
@@ -18,6 +22,12 @@ namespace OpenIK.Editor
         private static readonly GUIContent MaxLinearSpeedLabel = new(
             "Max Linear Speed (m/s)",
             "Maximum travel speed along the slide axis, in metres per second. Zero holds the slide still; its parent can still carry it.");
+
+        private void OnEnable()
+        {
+            _gizmoMode = serializedObject.FindProperty("gizmoMode");
+            _rangeSize = serializedObject.FindProperty("rangeSize");
+        }
 
         public override void OnInspectorGUI()
         {
@@ -36,8 +46,15 @@ namespace OpenIK.Editor
             DrawMotionSection();
 
             EditorGUILayout.Space();
-            EditorGUILayout.LabelField("Gizmos", EditorStyles.boldLabel);
-            EditorGUILayout.PropertyField(serializedObject.FindProperty("gizmoMode"));
+            _showGizmos = EditorGUILayout.Foldout(_showGizmos, "Gizmos", true, EditorStyles.foldoutHeader);
+            if (_showGizmos)
+            {
+                EditorGUI.indentLevel++;
+                EditorGUILayout.PropertyField(_gizmoMode);
+                if (target is HingeIKJoint || target is BallSocketIKJoint)
+                    EditorGUILayout.PropertyField(_rangeSize, new GUIContent("Size", _rangeSize.tooltip));
+                EditorGUI.indentLevel--;
+            }
 
             serializedObject.ApplyModifiedProperties();
         }
@@ -45,6 +62,7 @@ namespace OpenIK.Editor
         private static bool IsDrawnSeparately(string propertyName)
         {
             return propertyName == "gizmoMode" ||
+                   propertyName == "rangeSize" ||
                    propertyName == nameof(ConstrainedJoint.limitSpeed) ||
                    propertyName == nameof(ConstrainedJoint.maxAngularSpeed) ||
                    propertyName == nameof(ConstrainedJoint.maxLinearSpeed);

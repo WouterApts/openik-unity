@@ -12,7 +12,7 @@ namespace OpenIK
         Automatic,
 
         /// <summary>
-        /// Only solve. Read <see cref="OpenIKSolverBase.LastOutput"/>, or call
+        /// Only solve. Read <see cref="OpenIKSolverBase.LastSolution"/>, or call
         /// <see cref="OpenIKSolverBase.Apply"/> to write it to the transforms.
         /// </summary>
         Manual
@@ -21,14 +21,22 @@ namespace OpenIK
     /// <summary>Selects when a solver runs.</summary>
     public enum UpdateMode
     {
+        // Explicit values keep saved scenes stable; declaration order sets the Inspector order.
+
         /// <summary>Step the solver every frame in LateUpdate with scaled delta time.</summary>
-        LateUpdate,
+        LateUpdate = 0,
+
+        /// <summary>
+        /// Step the solver in FixedUpdate with the fixed time step, in sync with physics. With
+        /// <see cref="OpenIKSolverBase.Interpolate"/> on, the chain moves smoothly between fixed steps.
+        /// </summary>
+        FixedUpdate = 2,
 
         /// <summary>
         /// Never step automatically. Call <see cref="OpenIKSolverBase.Step"/>, or
         /// <see cref="OpenIKSolverBase.Solve"/> and <see cref="OpenIKSolverBase.Apply"/>, from your own code.
         /// </summary>
-        Manual
+        Manual = 1
     }
 
     /// <summary>The target's world-space pose, captured once at the start of a solve.</summary>
@@ -58,7 +66,7 @@ namespace OpenIK
 
         /// <summary>
         /// Remaining error against the goal, in the same units as the solver's tolerance.
-        /// The solve counts as converged when this is at most the solver's Tolerance.
+        /// By default, the solve counts as converged when this is at most the solver's Tolerance.
         /// </summary>
         public readonly float Error;
 
@@ -70,39 +78,39 @@ namespace OpenIK
     }
 
     /// <summary>
-    /// Base class for OpenIK solver components. It owns the chain setup, the per-frame update, and
-    /// the application of solutions to the transforms, so a solver only implements SolveChain.
+    /// Base class for every OpenIK solver component. It owns the per-frame update, the solve and apply
+    /// steps, <see cref="LastSolution"/>, and the application of solutions with joint speed limits.
     /// </summary>
     /// <remarks>
-    /// Each <see cref="Step"/> first calls <see cref="Solve"/>, which computes <see cref="LastOutput"/>
+    /// Each <see cref="Step"/> first calls <see cref="Solve"/>, which computes <see cref="LastSolution"/>
     /// without touching the transforms. When ApplyMode is Automatic, it then calls
     /// <see cref="Apply"/>, which moves the transforms toward that solution within the joints'
     /// speed limits.
+    ///
+    /// Solvers for one chain toward one target derive from <see cref="SingleChainSolverBase"/>. A
+    /// solver that builds its own joints derives from this class directly and implements its abstract
+    /// members.
     /// </remarks>
     public abstract class OpenIKSolverBase : MonoBehaviour
     {
         [Header("Execution")]
-        [Tooltip("When the solver runs. LateUpdate steps it every frame. Manual leaves it to scripts, which should call Step, or Solve and Apply.")]
+        [Tooltip("When the solver runs.\n" +
+                 "• LateUpdate: steps it every frame.\n" +
+                 "• FixedUpdate: steps it with the fixed time step, in sync with physics.\n" +
+                 "• Manual: leaves it to scripts, which should call Step, or Solve and Apply.")]
         [SerializeField] private UpdateMode updateMode = UpdateMode.LateUpdate;
 
-        [Tooltip("Automatic writes each solution to the chain's transforms, moving joints with Limit Speed enabled at their capped speed. " +
-                 "Manual only solves; other scripts read LastOutput or call Apply.")]
+        [Tooltip("Smooths the chain between fixed steps, like Rigidbody interpolation. The visible pose trails the solved pose by up to " +
+                 "one fixed step; physics and the next solve use the solved pose. Used with Update Mode FixedUpdate and Apply Mode Automatic.")]
+        [SerializeField] private bool interpolate = true;
+
+        [Tooltip("How each solution reaches the chain's transforms.\n" +
+                 "• Automatic: writes it to the transforms, moving joints with Limit Speed enabled at their capped speed.\n" +
+                 "• Manual: only solves; other scripts read LastSolution or call Apply.")]
         [FormerlySerializedAs("mode")]
         [SerializeField] private ApplyMode applyMode = ApplyMode.Automatic;
 
-        [Header("Chain")]
-        [Tooltip("Transform the end effector moves toward.")]
-        [SerializeField] private Transform target;
-
-        [Tooltip("Joint transforms ordered from the root to the end effector.")]
-        [SerializeField] private List<Transform> chainJoints = new();
-
-        [Header("Solving")]
-        [Tooltip("Stop iterating when the end effector is this close to the target, in world units.")]
-        [Min(0f)]
-        [SerializeField] private float tolerance = 0.001f;
-
-        [Tooltip("Maximum solver iterations per frame. Higher values allow more refinement but cost more processing time. Stops early when Tolerance is reached.")]
+        [Tooltip("Maximum solver iterations per frame. Higher values allow more refinement but cost more processing time. Stops early once the solve converges.")]
         [Min(0)]
         [SerializeField] private int maxIterations = 10;
 
@@ -125,11 +133,20 @@ namespace OpenIK
         private IKApplicationStatus _applicationStatus = IKApplicationStatus.NotApplied;
         private bool _isInitialized;
 
-        // True while speed-limited joints lag behind LastOutput, so the next solve starts from it.
+        // True while speed-limited joints lag behind LastSolution, so the next solve starts from it.
         private bool _hasLaggingSolution;
 
-        // Root-parent rotation that LastOutput was solved with.
+        // Root-parent rotation that LastSolution was solved with.
         private Quaternion _solvedRootParentRotation = Quaternion.identity;
+
+        // Fixed-step interpolation: the chain's local pose before and after the latest fixed step.
+        private Vector3[] _previousLocalPositions = Array.Empty<Vector3>();
+        private Quaternion[] _previousLocalRotations = Array.Empty<Quaternion>();
+        private Vector3[] _solvedLocalPositions = Array.Empty<Vector3>();
+        private Quaternion[] _solvedLocalRotations = Array.Empty<Quaternion>();
+        private bool _hasSolvedLocalPose;
+        private bool _showsInterpolatedPose;
+        private bool _isFixedStepping;
 
         /// <summary>
         /// Fires after every solve, before the solution is applied. Subscribers receive the solver's
@@ -150,28 +167,26 @@ namespace OpenIK
             set => updateMode = value;
         }
 
+        /// <summary>
+        /// When true, a solver in FixedUpdate mode with Automatic apply smooths the chain between fixed
+        /// steps, like Rigidbody interpolation.
+        /// </summary>
+        /// <remarks>
+        /// The transforms show a pose blended between the last two fixed steps, so they trail the
+        /// solved pose by up to one fixed step. Before each fixed step the solver restores the solved
+        /// pose, so physics and the next solve never see the blended one.
+        /// </remarks>
+        public bool Interpolate
+        {
+            get => interpolate;
+            set => interpolate = value;
+        }
+
         /// <summary>Whether <see cref="Step"/> writes each solution to the transforms.</summary>
         public ApplyMode ApplyMode
         {
             get => applyMode;
             set => applyMode = value;
-        }
-
-        /// <summary>Transform the end effector moves toward. The solver skips solving while it is null.</summary>
-        public Transform Target
-        {
-            get => target;
-            set => target = value;
-        }
-
-        /// <summary>The authored joint transforms, in root-to-end order.</summary>
-        public IReadOnlyList<Transform> ChainJoints => chainJoints;
-
-        /// <summary>Error at which the solver stops iterating and reports convergence.</summary>
-        public float Tolerance
-        {
-            get => tolerance;
-            set => tolerance = Mathf.Max(0f, value);
         }
 
         /// <summary>Maximum number of iterations per solve.</summary>
@@ -218,14 +233,18 @@ namespace OpenIK
         public SolverChain Chain => _chain;
 
         /// <summary>
-        /// Output of the most recent solve: the solved pose and its convergence statistics. While
+        /// Result of the most recent solve: the solved pose and its convergence statistics. While
         /// joint speed limits are active, the transforms can still be moving toward this pose; see
         /// <see cref="ApplicationStatus"/>.
         /// </summary>
-        public IKSolverOutput LastOutput => _output;
+        /// <remarks>The result buffers are reused on the next solve. Copy pose data you need to keep.</remarks>
+        public IKSolverOutput LastSolution => _output;
+
+        /// <summary>Compatibility alias for <see cref="LastSolution"/>. Use LastSolution in new code.</summary>
+        public IKSolverOutput LastOutput => LastSolution;
 
         /// <summary>
-        /// What happened when <see cref="LastOutput"/> was applied to the transforms. Its Applied
+        /// What happened when <see cref="LastSolution"/> was applied to the transforms. Its Applied
         /// flag is false until the latest solution is applied.
         /// </summary>
         public IKApplicationStatus ApplicationStatus => _applicationStatus;
@@ -240,16 +259,45 @@ namespace OpenIK
         protected virtual bool SupportsSliderTranslation => true;
 
         /// <summary>
-        /// Moves the chain's solver state toward the IKGoal
+        /// Checks the setup before the chain is built, when the solver initializes.
+        /// </summary>
+        /// <returns>
+        /// False when the setup is invalid. Log the reason and disable the component before returning,
+        /// as the built-in solvers do.
+        /// </returns>
+        protected abstract bool ValidateSetup();
+
+        /// <summary>
+        /// Builds the runtime chain after <see cref="ValidateSetup"/> passed. To build a tree of joints,
+        /// use <see cref="SolverChain.Initialize(IReadOnlyList{Transform}, IReadOnlyList{int})"/>.
+        /// </summary>
+        /// <param name="chain">The solver's chain, to initialize.</param>
+        protected abstract void BuildChain(SolverChain chain);
+
+        /// <summary>True when the solver has a goal to solve toward. Solve does nothing while it is false.</summary>
+        protected abstract bool HasGoal { get; }
+
+        /// <summary>
+        /// Moves the chain's solver state toward the solver's goals.
         /// </summary>
         /// <remarks>
         /// When this is called, Chain holds the pose to start from and up-to-date
         /// constraints. Read and write only the <see cref="SolverJoint"/> solver state; the base class
-        /// copies the result into <see cref="LastOutput"/> and applies it.
+        /// copies the result into <see cref="LastSolution"/> and applies it.
         /// </remarks>
-        /// <param name="goal">The target's pose at the start of this solve.</param>
-        /// <returns>The iteration count and the remaining error against <paramref name="goal"/>.</returns>
-        protected abstract SolveResult SolveChain(in IKGoal goal);
+        /// <returns>The iteration count and the remaining error.</returns>
+        protected abstract SolveResult SolveChain();
+
+        /// <summary>Whether a solve result counts as converged.</summary>
+        /// <param name="result">The result SolveChain returned.</param>
+        protected abstract bool IsConverged(in SolveResult result);
+
+        /// <summary>
+        /// Distance in metres from the applied end effector to its target, read from the transforms after
+        /// application, for <see cref="ApplicationStatus"/>. With several targets, return the largest.
+        /// Only called while HasGoal is true.
+        /// </summary>
+        protected abstract float ComputeActualPositionError();
 
         /// <summary>Called once after the chain is built, before the first solve.</summary>
         protected virtual void OnInitialized() { }
@@ -257,26 +305,85 @@ namespace OpenIK
         /// <summary>Called after one or more joints were bound to different constraint types.</summary>
         protected virtual void OnConstraintsRebound() { }
 
+        // Called after each configuration refresh, before the starting pose is set. Rebound is true when
+        // a joint was bound to a different constraint type. SingleChainSolverBase uses it for its poles,
+        // so it works even when a solver overrides OnConstraintsRebound without calling the base method.
+        private protected virtual void OnConfigurationRefreshed(bool rebound) { }
+
         /// <summary>
         /// Angle in degrees between the actual end orientation and the target's orientation objective,
         /// read from the transforms after application. NaN for solvers without an orientation objective.
         /// </summary>
         protected virtual float ComputeActualOrientationError() => float.NaN;
 
+        /// <summary>
+        /// Validates the setup and builds the chain again, for solvers whose joints change at runtime.
+        /// The rest pose is captured from the transforms as they are, so put the joints that were
+        /// already in the chain back in their rest pose first.
+        /// </summary>
+        /// <returns>False when the new setup is invalid. The solver then stays uninitialized.</returns>
+        protected bool Rebuild()
+        {
+            return Initialize();
+        }
+
+        // True after the chain was built from a valid setup.
+        private protected bool IsInitialized => _isInitialized;
+
+        // Makes the next solve validate and build the chain again.
+        private protected void ResetInitialization() => _isInitialized = false;
+
         private void Awake()
         {
             Initialize();
         }
 
+        private void FixedUpdate()
+        {
+            if (updateMode != UpdateMode.FixedUpdate)
+                return;
+
+            if (InterpolatesFixedSteps)
+            {
+                // Start the step from the solved pose, which also becomes the start of the next blend.
+                RestoreSolvedLocalPose();
+                if (_hasSolvedLocalPose)
+                    CopyLocalPose(_solvedLocalPositions, _solvedLocalRotations, _previousLocalPositions, _previousLocalRotations);
+            }
+            else
+            {
+                StopInterpolation();
+            }
+
+            _isFixedStepping = true;
+            try
+            {
+                Step(Time.fixedDeltaTime);
+            }
+            finally
+            {
+                _isFixedStepping = false;
+            }
+        }
+
         private void LateUpdate()
         {
+            if (InterpolatesFixedSteps)
+            {
+                // Rigidbody interpolation uses the same blend factor.
+                ShowInterpolatedPose((float)((Time.timeAsDouble - Time.fixedTimeAsDouble) / Time.fixedDeltaTime));
+                return;
+            }
+
+            StopInterpolation();
             if (updateMode == UpdateMode.LateUpdate)
                 Step(Time.deltaTime);
         }
 
         /// <summary>
         /// Runs one solver update: solves, then applies the solution when ApplyMode is Automatic.
-        /// With UpdateMode set to LateUpdate, the solver calls this every frame with scaled delta time.
+        /// With UpdateMode set to LateUpdate, the solver calls this every frame with scaled delta time;
+        /// with FixedUpdate, every fixed step with the fixed time step.
         /// </summary>
         /// <param name="deltaTime">Elapsed time for the joint speed limits.</param>
         public void Step(float deltaTime)
@@ -286,23 +393,23 @@ namespace OpenIK
         }
 
         /// <summary>
-        /// Solves the chain toward Target and stores the result in
-        /// <see cref="LastOutput"/>. Never writes transforms.
+        /// Solves the chain toward its target, or targets, and stores the result in
+        /// <see cref="LastSolution"/>. Never writes transforms.
         /// </summary>
         /// <returns>False when the solver is not set up or has no target, so nothing was solved.</returns>
         public bool Solve()
         {
-            if ((!_isInitialized && !Initialize()) || target == null)
+            if ((!_isInitialized && !Initialize()) || !HasGoal)
                 return false;
 
             if (!staticSolverConfiguration)
-                RefreshConfiguration();
+                OnConfigurationRefreshed(RefreshConfiguration());
 
             SetStartingPose();
             _solvedRootParentRotation = _chain.RootParentRotation;
 
-            SolveResult result = SolveChain(new IKGoal(target.position, target.rotation));
-            _output.Populate(_chain, result.Iterations, result.Error, result.Error <= tolerance, WritesEndRotation);
+            SolveResult result = SolveChain();
+            _output.Populate(_chain, result.Iterations, result.Error, IsConverged(result), WritesEndRotation);
 
             // The new solution has not been applied yet.
             _applicationStatus = IKApplicationStatus.NotApplied;
@@ -311,7 +418,7 @@ namespace OpenIK
         }
 
         /// <summary>
-        /// Moves the transforms toward the <see cref="LastOutput"/>, moving/rotating speed-limited joints
+        /// Moves the transforms toward the <see cref="LastSolution"/>, moving/rotating speed-limited joints
         /// by at most their speed multiplied by <paramref name="deltaTime"/>.
         /// </summary>
         /// <remarks>
@@ -333,7 +440,7 @@ namespace OpenIK
         }
 
         /// <summary>
-        /// Immediately writes <see cref="LastOutput"/> to the transforms, ignoring speed limits. Use it
+        /// Immediately writes <see cref="LastSolution"/> to the transforms, ignoring speed limits. Use it
         /// to initialize a chain or recover after a teleport. It does not solve again.
         /// </summary>
         /// <returns>False when there is no output for the current chain, for example before the first solve.</returns>
@@ -358,18 +465,22 @@ namespace OpenIK
         private bool Initialize()
         {
             _isInitialized = false;
-            if (!SolverSetupValidation.Validate(this, SolverName, target, chainJoints))
+            if (!ValidateSetup())
                 return false;
 
-            _chain.Initialize(chainJoints);
+            BuildChain(_chain);
+            _hasLaggingSolution = false;
+            _hasSolvedLocalPose = false;
+            _showsInterpolatedPose = false;
             WarnIfSlidersUnsupported();
             OnInitialized();
             _isInitialized = true;
             return true;
         }
 
-        // Pulls the latest joint component settings into the runtime constraints.
-        private void RefreshConfiguration()
+        // Pulls the latest joint component settings into the runtime constraints. Returns true when
+        // any joint was bound to a different constraint type.
+        private bool RefreshConfiguration()
         {
             _chain.UpdateConstraints();
             bool rebound = _chain.RefreshConstraintBindings();
@@ -381,11 +492,13 @@ namespace OpenIK
                 WarnIfSlidersUnsupported();
                 OnConstraintsRebound();
             }
+
+            return rebound;
         }
 
         // Sets the solver state to the pose this solve starts from:
         // - the rest pose, when Solve From Rest Pose is on;
-        // - LastOutput, while speed-limited joints are still moving toward it, because solving
+        // - LastSolution, while speed-limited joints are still moving toward it, because solving
         //   from the lagging transforms can flip between two IK solutions every frame;
         // - otherwise, the current pose of the actual transforms.
         private void SetStartingPose()
@@ -407,10 +520,104 @@ namespace OpenIK
         {
             _applicationStatus = WithActualTargetErrors(status);
             KeepSolutionForNextSolve();
+            RecordSolvedLocalPose();
             Applied?.Invoke(_applicationStatus);
         }
 
-        // Keeps LastOutput as the next solve's starting pose while speed-limited joints lag behind it.
+        private bool InterpolatesFixedSteps =>
+            interpolate && updateMode == UpdateMode.FixedUpdate && applyMode == ApplyMode.Automatic;
+
+        // Records the pose just written to the transforms as the end point of the interpolation.
+        // A pose written outside a fixed step, for example by SnapToSolution, shows without blending.
+        private void RecordSolvedLocalPose()
+        {
+            _showsInterpolatedPose = false;
+            if (!InterpolatesFixedSteps)
+            {
+                _hasSolvedLocalPose = false;
+                return;
+            }
+
+            int count = _chain.Count;
+            if (_solvedLocalPositions.Length != count)
+            {
+                _previousLocalPositions = new Vector3[count];
+                _previousLocalRotations = new Quaternion[count];
+                _solvedLocalPositions = new Vector3[count];
+                _solvedLocalRotations = new Quaternion[count];
+                _hasSolvedLocalPose = false;
+            }
+
+            SolverJoint[] joints = _chain.Joints;
+            for (int i = 0; i < count; i++)
+                joints[i].Transform.GetLocalPositionAndRotation(out _solvedLocalPositions[i], out _solvedLocalRotations[i]);
+
+            if (!_hasSolvedLocalPose || !_isFixedStepping)
+                CopyLocalPose(_solvedLocalPositions, _solvedLocalRotations, _previousLocalPositions, _previousLocalRotations);
+            _hasSolvedLocalPose = true;
+        }
+
+        // Writes a blend between the previous and the latest fixed-step pose. Zero shows the previous pose.
+        private void ShowInterpolatedPose(float blend)
+        {
+            if (!_hasSolvedLocalPose || !ChainTransformsExist())
+                return;
+
+            blend = Mathf.Clamp01(blend);
+            SolverJoint[] joints = _chain.Joints;
+            for (int i = 0; i < joints.Length; i++)
+            {
+                joints[i].Transform.SetLocalPositionAndRotation(
+                    Vector3.Lerp(_previousLocalPositions[i], _solvedLocalPositions[i], blend),
+                    Quaternion.Slerp(_previousLocalRotations[i], _solvedLocalRotations[i], blend));
+            }
+
+            _showsInterpolatedPose = true;
+        }
+
+        // Puts the transforms back in the latest solved pose after ShowInterpolatedPose.
+        private void RestoreSolvedLocalPose()
+        {
+            if (!_showsInterpolatedPose)
+                return;
+
+            _showsInterpolatedPose = false;
+            if (!_hasSolvedLocalPose || !ChainTransformsExist())
+                return;
+
+            SolverJoint[] joints = _chain.Joints;
+            for (int i = 0; i < joints.Length; i++)
+                joints[i].Transform.SetLocalPositionAndRotation(_solvedLocalPositions[i], _solvedLocalRotations[i]);
+        }
+
+        // Leaves the solved pose on the transforms and forgets it, for example after a mode change.
+        private void StopInterpolation()
+        {
+            RestoreSolvedLocalPose();
+            _hasSolvedLocalPose = false;
+        }
+
+        private bool ChainTransformsExist()
+        {
+            if (_solvedLocalPositions.Length != _chain.Count)
+                return false;
+
+            foreach (SolverJoint joint in _chain.Joints)
+            {
+                if (joint.Transform == null)
+                    return false;
+            }
+
+            return true;
+        }
+
+        private static void CopyLocalPose(Vector3[] fromPositions, Quaternion[] fromRotations, Vector3[] toPositions, Quaternion[] toRotations)
+        {
+            Array.Copy(fromPositions, toPositions, fromPositions.Length);
+            Array.Copy(fromRotations, toRotations, fromRotations.Length);
+        }
+
+        // Keeps LastSolution as the next solve's starting pose while speed-limited joints lag behind it.
         private void KeepSolutionForNextSolve()
         {
             _hasLaggingSolution = _applicationStatus.Applied
@@ -419,11 +626,10 @@ namespace OpenIK
 
         private IKApplicationStatus WithActualTargetErrors(IKApplicationStatus status)
         {
-            if (!status.Applied || target == null || _chain.Count == 0)
+            if (!status.Applied || !HasGoal || _chain.Count == 0)
                 return status;
 
-            Transform end = _chain.Joints[_chain.Count - 1].Transform;
-            float positionError = Vector3.Distance(end.position, target.position);
+            float positionError = ComputeActualPositionError();
             return status.WithTargetErrors(positionError, ComputeActualOrientationError());
         }
 

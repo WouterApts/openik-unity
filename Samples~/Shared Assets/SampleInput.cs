@@ -9,7 +9,7 @@ namespace OpenIK.Showcase
         {
             public Vector2 Move, Pointer, Look;
             public float Scroll;
-            public bool LeftHeld, LeftPressed, RightHeld, PortraitPressed, CancelPressed, ClearPressed;
+            public bool LeftHeld, LeftPressed, RightHeld, RunHeld, PortraitPressed, CancelPressed, ClearPressed;
         }
 
         public interface IBackend
@@ -55,6 +55,7 @@ namespace OpenIK.Showcase
 
         public static Vector2 Move => Current.Move;
         public static Vector2 LookDelta => Current.Look;
+        public static bool Run => Current.RunHeld;
         public static Vector3 mousePosition => Current.Pointer;
         public static Vector2 mouseScrollDelta => new Vector2(0f, Current.Scroll);
         public static bool GetMouseButton(int button) => button == 0 ? Current.LeftHeld : button == 1 && Current.RightHeld;
@@ -107,7 +108,9 @@ namespace OpenIK.Showcase
                     Move = new Vector2(horizontal, vertical), Pointer = pointer, Look = look,
                     Scroll = Input.mouseScrollDelta.y,
                     LeftHeld = Input.GetMouseButton(0), LeftPressed = Input.GetMouseButtonDown(0),
-                    RightHeld = Input.GetMouseButton(1), PortraitPressed = Input.GetKeyDown(KeyCode.P),
+                    RightHeld = Input.GetMouseButton(1),
+                    RunHeld = Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift),
+                    PortraitPressed = Input.GetKeyDown(KeyCode.P),
                     CancelPressed = Input.GetKeyDown(KeyCode.Escape), ClearPressed = Input.GetKeyDown(KeyCode.R)
                 };
             }

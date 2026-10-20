@@ -23,7 +23,7 @@ namespace OpenIK.Editor.Tests
         private const float PositionTolerance = 1e-5f;
         private const float RotationTolerance = 1e-5f;
 
-        private enum Kind { FABRIK, CCD, Jacobian }
+        private enum Kind { FABRIK, CCD, Jacobian, TwoBone }
 
         private sealed class Scenario
         {
@@ -31,7 +31,7 @@ namespace OpenIK.Editor.Tests
             public Kind Kind;
             public Vector3[] LocalOffsets;
             public Action<List<Transform>> AddJoints;
-            public Action<OpenIKSolverBase> Configure;
+            public Action<SingleChainSolverBase> Configure;
             public bool SpeedLimited;
             public bool Synchronize;
             public Vector3 PathCenter;
@@ -40,6 +40,7 @@ namespace OpenIK.Editor.Tests
 
         private static readonly Vector3[] FourJoints = { Vector3.zero, new(0f, 1f, 0f), new(0f, 0.8f, 0f), new(0f, 0.6f, 0f) };
         private static readonly Vector3[] FiveJoints = { Vector3.zero, new(0f, 0.7f, 0f), new(0f, 0.7f, 0.2f), new(0f, 0.6f, 0f), new(0f, 0.4f, 0f) };
+        private static readonly Vector3[] ThreeJoints = { Vector3.zero, new(0f, 1f, 0.1f), new(0f, 1f, -0.1f) };
 
         private static IEnumerable<Scenario> Scenarios()
         {
@@ -80,6 +81,55 @@ namespace OpenIK.Editor.Tests
             positionOnly.Configure = solver => SetEnumField(solver, "orientationMode", 0);
             yield return positionOnly;
             yield return Limited(Slider("Jacobian_SliderSpeedLimitedSync", Kind.Jacobian), synchronize: true);
+
+            // Poles. The FABRIK and CCD poles sit on a hinge whose parent is a hinge, so their sections
+            // extend up to the root ball socket.
+            yield return WithPole(Constrained("FABRIK_Pole", Kind.FABRIK), bendIndex: 2, weight: 1f);
+            yield return WithPole(Constrained("CCD_PoleHalfWeight", Kind.CCD), bendIndex: 2, weight: 0.5f);
+            yield return WithPole(Constrained("Jacobian_Pole", Kind.Jacobian), bendIndex: 1, weight: 1f);
+            yield return Limited(WithPole(Constrained("FABRIK_PoleSpeedLimited", Kind.FABRIK), bendIndex: 2, weight: 1f), synchronize: false);
+
+            // Two-bone
+            yield return TwoBone("TwoBone_Arm");
+            Scenario foot = WithPole(TwoBone("TwoBone_FootPoleSoft"), bendIndex: 1, weight: 1f);
+            Action<SingleChainSolverBase> footPole = foot.Configure;
+            foot.Configure = solver =>
+            {
+                footPole(solver);
+                SetEnumField(solver, "endRotation", 2);
+                SetField(solver, "softness", 0.1f);
+            };
+            yield return foot;
+            yield return Limited(TwoBone("TwoBone_SpeedLimited"), synchronize: true);
+        }
+
+        private static Scenario TwoBone(string name) => new()
+        {
+            Name = name,
+            Kind = Kind.TwoBone,
+            LocalOffsets = ThreeJoints,
+            AddJoints = joints =>
+            {
+                AddBallSocket(joints[0], 80f, 80f, 60f);
+                AddHinge(joints[1], Vector3.right, -150f, 150f);
+            },
+            PathCenter = new Vector3(0.3f, 1.4f, 0.3f),
+            // Leaves the limb's reach for part of the path.
+            PathAmplitude = new Vector3(0.9f, 0.7f, 0.7f)
+        };
+
+        private static Scenario WithPole(Scenario scenario, int bendIndex, float weight)
+        {
+            Action<SingleChainSolverBase> configure = scenario.Configure;
+            scenario.Configure = solver =>
+            {
+                configure?.Invoke(solver);
+                Transform pole = new GameObject("Pole").transform;
+                pole.SetParent(solver.transform, false);
+                pole.localPosition = new Vector3(1.5f, 1.2f, -1f);
+                solver.AddPole(solver.ChainJoints[bendIndex], pole, weight);
+            };
+            return scenario;
         }
 
         private static Scenario Free(string name, Kind kind) => new()
@@ -129,7 +179,7 @@ namespace OpenIK.Editor.Tests
 
         private static Scenario RestPose(Scenario scenario)
         {
-            Action<OpenIKSolverBase> configure = scenario.Configure;
+            Action<SingleChainSolverBase> configure = scenario.Configure;
             scenario.Configure = solver =>
             {
                 configure?.Invoke(solver);
@@ -220,10 +270,11 @@ namespace OpenIK.Editor.Tests
 
                 scenario.AddJoints?.Invoke(joints);
 
-                OpenIKSolverBase solver = scenario.Kind switch
+                SingleChainSolverBase solver = scenario.Kind switch
                 {
                     Kind.FABRIK => solverRoot.AddComponent<FABRIKSolver>(),
                     Kind.CCD => solverRoot.AddComponent<CCDIKSolver>(),
+                    Kind.TwoBone => solverRoot.AddComponent<TwoBoneIKSolver>(),
                     _ => solverRoot.AddComponent<JacobianIKSolver>()
                 };
                 SetField(solver, "target", target.transform);
@@ -247,7 +298,7 @@ namespace OpenIK.Editor.Tests
                     if (frame % SampleInterval != SampleInterval - 1)
                         continue;
 
-                    IKSolverOutput output = solver.LastOutput;
+                    IKSolverOutput output = solver.LastSolution;
                     builder.Append("f ").Append(frame).Append(' ')
                         .Append(output.IterationsUsed).Append(' ')
                         .Append(Format(output.FinalError)).Append(' ')

@@ -13,9 +13,10 @@ namespace OpenIK
     /// constraints are applied in both passes, and slider segments change length within their limits.
     /// FABRIK solves for position only; use <see cref="JacobianIKSolver"/> to match orientation too.
     /// </remarks>
-    public class FABRIKSolver : OpenIKSolverBase
+    [AddComponentMenu("OpenIK/FABRIK Solver", 0)]
+    public class FABRIKSolver : SingleChainSolverBase
     {
-        [Header("FABRIK")]
+        [Space(6)]
         [Tooltip("Help a nearly straight chain bend toward a target aligned with it.")]
         [SerializeField] private bool useSingularityHandling = true;
 
@@ -53,6 +54,10 @@ namespace OpenIK
 
                 ForwardReach(iterationTarget);
                 BackwardReach(rootPosition);
+
+                // After the reach passes, so they cannot undo the final pole direction. The base
+                // class already turned the starting pose before the first iteration.
+                ApplyPoles();
                 Chain.ReconstructRotations();
 
                 iteration++;

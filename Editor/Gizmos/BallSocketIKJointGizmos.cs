@@ -21,7 +21,7 @@ namespace OpenIK.Editor
 
             float a = Mathf.Sin(Mathf.Deg2Rad * Mathf.Clamp(joint.swingYawHalfAngle, 0f, 180f) * 0.5f);
             float b = Mathf.Sin(Mathf.Deg2Rad * Mathf.Clamp(joint.swingPitchHalfAngle, 0f, 180f) * 0.5f);
-            float radius = 0.8f;
+            float radius = 1f * joint.RangeSize;
             int segments = 48;
 
             var prevZTest = Handles.zTest;

@@ -101,6 +101,11 @@ namespace OpenIK
         [SerializeField] private GizmoDrawMode gizmoMode = GizmoDrawMode.SelectedOnly;
         public GizmoDrawMode GizmoMode => gizmoMode;
 
+        [Tooltip("Scale of the hinge and ball-socket range gizmos relative to a one-unit radius. Does not change the joint ball.")]
+        [Min(0f)]
+        [SerializeField] private float rangeSize = 0.5f;
+        public float RangeSize => Mathf.Max(0f, rangeSize);
+
         /// <summary>When true, the joint moves toward the solved pose at a capped speed instead of snapping to it.</summary>
         [Tooltip("Move this joint toward the solved pose at a capped speed instead of snapping to it. " +
                  "The end effector can then lag behind the IK target. Applies whenever the solver applies its solution; " +

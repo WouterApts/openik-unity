@@ -13,9 +13,10 @@ namespace OpenIK
     /// error. Damping keeps the step stable near singularities at the cost of slower convergence.
     /// Slider segments are solved as translational degrees of freedom.
     /// </remarks>
-    public class JacobianIKSolver : OpenIKSolverBase
+    [AddComponentMenu("OpenIK/Jacobian Solver", 2)]
+    public class JacobianIKSolver : SingleChainSolverBase
     {
-        [Header("Damped Least Squares")]
+        [Space(6)]
         [Tooltip("Stabilizes solver steps near singularities. Higher values can slow convergence.")]
         [SerializeField] private float damping = 0.1f;
 
@@ -188,6 +189,7 @@ namespace OpenIK
                 // segment offset. Rotations were already inherited inside the per-DOF loop above.
                 RebuildDownstreamPositions();
 
+                ApplyPoles();
                 ApplyConstraints();
                 RebuildDownstreamPositions();
 

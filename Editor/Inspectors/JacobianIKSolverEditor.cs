@@ -10,7 +10,9 @@ namespace OpenIK.Editor
     {
         protected override GUIContent GetLabel(SerializedProperty property)
         {
-            return new GUIContent(property.displayName, GetTooltip(property));
+            GUIContent label = base.GetLabel(property);
+            label.tooltip = GetTooltip(property);
+            return label;
         }
 
         private static string GetTooltip(SerializedProperty property)

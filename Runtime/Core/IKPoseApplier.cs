@@ -195,7 +195,6 @@ namespace OpenIK
             bool anyLimited = false;
             bool anyBlocked = false;
             bool anyOutside = false;
-            int endIdx = count - 1;
 
             // Pass 1: joint coordinates and remaining travel of every limited joint. These depend only on
             // the actual and desired poses, not on the poses applied this step.
@@ -220,7 +219,7 @@ namespace OpenIK
                 }
 
                 _angularRemaining[i] = -1f;
-                if ((i < endIdx || output.WriteEndRotation) &&
+                if (output.WritesRotation[i] &&
                     UsesAngularLimit(joint, out IAngularMotionProvider angularMotion))
                 {
                     _currentDeviations[i] = joint.ToConstraintDeviation(actualParentRotation, _actualRotations[i]);
@@ -280,8 +279,7 @@ namespace OpenIK
                 }
 
                 // Rotation.
-                bool writesRotation = i < endIdx || output.WriteEndRotation;
-                if (!writesRotation)
+                if (!output.WritesRotation[i])
                 {
                     // Not written: the joint keeps its actual rotation relative to its parent.
                     _appliedRotations[i] = appliedParentRotation
@@ -310,9 +308,11 @@ namespace OpenIK
             // Write in the same order as IKSolverOutput.ApplyTo.
             joints[0].Transform.position = _appliedPositions[0];
 
-            int rotationLoopEnd = output.WriteEndRotation ? count : endIdx;
-            for (int i = 0; i < rotationLoopEnd; i++)
-                joints[i].Transform.rotation = _appliedRotations[i];
+            for (int i = 0; i < count; i++)
+            {
+                if (output.WritesRotation[i])
+                    joints[i].Transform.rotation = _appliedRotations[i];
+            }
 
             for (int i = 1; i < count; i++)
             {

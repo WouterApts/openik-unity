@@ -3,9 +3,9 @@ using UnityEngine;
 namespace OpenIK
 {
     /// <summary>Limits a joint to rotation around one axis, between a minimum and a maximum angle.</summary>
+    [AddComponentMenu("OpenIK/Hinge IK Joint", 10)]
     public class HingeIKJoint : ConstrainedJoint
     {
-        [Header("Hinge Axis")]
         [Tooltip("The local-space axis the hinge rotates around.")]
         public Vector3 hingeAxis = Vector3.forward;
 

@@ -360,7 +360,7 @@ namespace OpenIK.Editor.Tests
 
             arm.Solver.ApplyMode = ApplyMode.Manual;
             arm.Solve();
-            IKSolverOutput output = arm.Solver.LastOutput;
+            IKSolverOutput output = arm.Solver.LastSolution;
             var expectedRotations = new List<Quaternion>(output.WorldRotations);
 
             IKApplicationStatus status = arm.Solver.Apply(0.1f);
@@ -424,7 +424,7 @@ namespace OpenIK.Editor.Tests
                 status = arm.Solver.Apply(0.05f);
                 if (step < 12 || step % 20 == 0)
                 {
-                    IKSolverOutput o = arm.Solver.LastOutput;
+                    IKSolverOutput o = arm.Solver.LastSolution;
                     float desiredRoot = o.WorldRotations[0].eulerAngles.y;
                     float desiredMid = (Quaternion.Inverse(o.WorldRotations[0]) * o.WorldRotations[1]).eulerAngles.y;
                     history.AppendLine($"step {step}: limited={status.AnyJointLimited} posErr={status.PositionError:F4} solveErr={o.FinalError:F4} desired=({desiredRoot:F1},{desiredMid:F1}) actual=({arm.LocalRotations()[0].eulerAngles.y:F1},{arm.LocalRotations()[1].eulerAngles.y:F1})");
@@ -466,7 +466,7 @@ namespace OpenIK.Editor.Tests
 
             Quaternion[] before = arm.LocalRotations();
             arm.Solve();
-            IKSolverOutput output = arm.Solver.LastOutput;
+            IKSolverOutput output = arm.Solver.LastSolution;
             Quaternion[] desired =
             {
                 Quaternion.Inverse(arm.Joints[0].parent.rotation) * output.WorldRotations[0],
@@ -504,7 +504,7 @@ namespace OpenIK.Editor.Tests
             arm.Joints[0].parent.SetPositionAndRotation(new Vector3(3f, 0f, 0f), Quaternion.Euler(0f, 40f, 0f));
             arm.Solve();
 
-            IKSolverOutput output = arm.Solver.LastOutput;
+            IKSolverOutput output = arm.Solver.LastSolution;
             Assert.That(Vector3.Distance(output.WorldPositions[0], arm.Joints[0].position), Is.LessThan(Epsilon));
             Assert.That(Vector3.Distance(output.WorldPositions[1], output.WorldPositions[0]), Is.EqualTo(1f).Within(Epsilon));
         }
@@ -537,7 +537,7 @@ namespace OpenIK.Editor.Tests
             arm.Solver.ApplyMode = ApplyMode.Manual;
 
             arm.Solve();
-            IKSolverOutput output = arm.Solver.LastOutput;
+            IKSolverOutput output = arm.Solver.LastSolution;
             Quaternion desiredRelative = Quaternion.Inverse(output.WorldRotations[0]) * output.WorldRotations[1];
             arm.Solver.Apply(0.1f);
             Quaternion actualRelative = Quaternion.Inverse(arm.Joints[0].rotation) * arm.Joints[1].rotation;
@@ -630,7 +630,7 @@ namespace OpenIK.Editor.Tests
             Quaternion[] before = arm.LocalRotations();
             arm.Solver.Step(0.1f);
 
-            Assert.That(arm.Solver.LastOutput.JointCount, Is.EqualTo(3));
+            Assert.That(arm.Solver.LastSolution.JointCount, Is.EqualTo(3));
             Assert.That(arm.Solver.ApplicationStatus.Applied, Is.False);
             Quaternion[] after = arm.LocalRotations();
             for (int i = 0; i < before.Length; i++)
@@ -647,10 +647,117 @@ namespace OpenIK.Editor.Tests
             Quaternion[] before = arm.LocalRotations();
             arm.LateUpdate();
 
-            Assert.That(arm.Solver.LastOutput.JointCount, Is.EqualTo(0), "LateUpdate should not solve in Manual update mode.");
+            Assert.That(arm.Solver.LastSolution.JointCount, Is.EqualTo(0), "LateUpdate should not solve in Manual update mode.");
             Quaternion[] after = arm.LocalRotations();
             for (int i = 0; i < before.Length; i++)
                 Assert.That(after[i], Is.EqualTo(before[i]));
+        }
+
+        [Test]
+        public void FixedUpdateMode_StepsOnlyInFixedUpdate()
+        {
+            using var arm = PlanarArm.Create(SolverKind.FABRIK);
+            arm.Initialize();
+            arm.Solver.UpdateMode = UpdateMode.FixedUpdate;
+
+            arm.LateUpdate();
+            Assert.That(arm.Solver.LastSolution.JointCount, Is.EqualTo(0), "LateUpdate should not solve in FixedUpdate mode.");
+
+            arm.FixedUpdate();
+            Assert.That(arm.Solver.LastSolution.JointCount, Is.EqualTo(3));
+            Assert.That(arm.Solver.ApplicationStatus.Applied, Is.True);
+        }
+
+        [TestCase(true)]
+        [TestCase(false)]
+        public void FixedUpdateMode_MatchesStepWithFixedDeltaTime(bool interpolate)
+        {
+            using var arm = PlanarArm.Create(SolverKind.CCD);
+            using var reference = PlanarArm.Create(SolverKind.CCD);
+            arm.LimitAll(90f);
+            reference.LimitAll(90f);
+            arm.Initialize();
+            reference.Initialize();
+            arm.Solver.UpdateMode = UpdateMode.FixedUpdate;
+            arm.Solver.Interpolate = interpolate;
+            reference.Solver.UpdateMode = UpdateMode.Manual;
+
+            for (int step = 0; step < 3; step++)
+            {
+                // A rendered frame between fixed steps must not change where the next step starts.
+                arm.ShowInterpolatedPose(0.5f);
+                arm.FixedUpdate();
+                reference.Solver.Step(Time.fixedDeltaTime);
+
+                Quaternion[] actual = arm.LocalRotations();
+                Quaternion[] expected = reference.LocalRotations();
+                for (int i = 0; i < actual.Length; i++)
+                    Assert.That(Quaternion.Angle(actual[i], expected[i]), Is.LessThan(AngleEpsilon), $"Step {step}, joint {i}");
+            }
+
+            Assert.That(arm.Solver.ApplicationStatus.AnyJointLimited, Is.True, "The speed limit should keep the arm moving.");
+        }
+
+        [Test]
+        public void FixedUpdateInterpolation_BlendsBetweenFixedSteps()
+        {
+            using var arm = PlanarArm.Create(SolverKind.CCD);
+            arm.LimitAll(90f);
+            arm.Initialize();
+            arm.Solver.UpdateMode = UpdateMode.FixedUpdate;
+
+            arm.FixedUpdate();
+            Quaternion[] previous = arm.LocalRotations();
+            arm.FixedUpdate();
+            Quaternion[] solved = arm.LocalRotations();
+            Assert.That(Quaternion.Angle(previous[0], solved[0]), Is.GreaterThan(1f), "The root should move during the second step.");
+
+            arm.ShowInterpolatedPose(0.25f);
+
+            Quaternion[] shown = arm.LocalRotations();
+            for (int i = 0; i < shown.Length; i++)
+                Assert.That(Quaternion.Angle(shown[i], Quaternion.Slerp(previous[i], solved[i], 0.25f)), Is.LessThan(AngleEpsilon));
+        }
+
+        [Test]
+        public void FixedUpdateInterpolation_ShowsSnapToSolutionWithoutBlending()
+        {
+            using var arm = PlanarArm.Create(SolverKind.CCD);
+            arm.LimitAll(1f);
+            arm.Initialize();
+            arm.Solver.UpdateMode = UpdateMode.FixedUpdate;
+
+            arm.FixedUpdate();
+            arm.FixedUpdate();
+            Assert.That(arm.Solver.SnapToSolution(), Is.True);
+            Quaternion[] snapped = arm.LocalRotations();
+
+            arm.ShowInterpolatedPose(0.5f);
+
+            Quaternion[] shown = arm.LocalRotations();
+            for (int i = 0; i < shown.Length; i++)
+                Assert.That(Quaternion.Angle(shown[i], snapped[i]), Is.LessThan(AngleEpsilon));
+        }
+
+        [Test]
+        public void LeavingFixedUpdateMode_RestoresTheSolvedPose()
+        {
+            using var arm = PlanarArm.Create(SolverKind.CCD);
+            arm.LimitAll(90f);
+            arm.Initialize();
+            arm.Solver.UpdateMode = UpdateMode.FixedUpdate;
+
+            arm.FixedUpdate();
+            arm.FixedUpdate();
+            Quaternion[] solved = arm.LocalRotations();
+            arm.ShowInterpolatedPose(0.5f);
+
+            arm.Solver.UpdateMode = UpdateMode.Manual;
+            arm.LateUpdate();
+
+            Quaternion[] after = arm.LocalRotations();
+            for (int i = 0; i < after.Length; i++)
+                Assert.That(Quaternion.Angle(after[i], solved[i]), Is.LessThan(AngleEpsilon));
         }
 
         [TestCase(SolverKind.CCD)]
@@ -661,7 +768,7 @@ namespace OpenIK.Editor.Tests
             using var arm = PlanarArm.Create(kind);
 
             Assert.That(arm.Solver.Solve(), Is.True);
-            Assert.That(arm.Solver.LastOutput.JointCount, Is.EqualTo(3));
+            Assert.That(arm.Solver.LastSolution.JointCount, Is.EqualTo(3));
             Assert.That(arm.Solver.Apply(0.1f).Applied, Is.True);
         }
 
@@ -673,7 +780,7 @@ namespace OpenIK.Editor.Tests
             arm.Solver.Target = null;
 
             Assert.That(arm.Solver.Solve(), Is.False);
-            Assert.That(arm.Solver.LastOutput.JointCount, Is.EqualTo(0));
+            Assert.That(arm.Solver.LastSolution.JointCount, Is.EqualTo(0));
         }
 
         [Test]
@@ -689,7 +796,7 @@ namespace OpenIK.Editor.Tests
             arm.Solve();
             Assert.That(arm.Solver.SnapToSolution(), Is.True);
 
-            IKSolverOutput output = arm.Solver.LastOutput;
+            IKSolverOutput output = arm.Solver.LastSolution;
             for (int i = 0; i < output.JointCount; i++)
                 Assert.That(Quaternion.Angle(arm.Joints[i].rotation, Quaternion.Normalize(output.WorldRotations[i])), Is.LessThan(AngleEpsilon));
             Assert.That(arm.Solver.ApplicationStatus.ReachedSolution, Is.True);
@@ -762,6 +869,24 @@ namespace OpenIK.Editor.Tests
         }
 
         [Test]
+        public void FixedUpdateInterpolation_DoesNotAllocateInSteadyState()
+        {
+            using var arm = PlanarArm.Create(SolverKind.Jacobian);
+            arm.LimitAll(30f);
+            arm.Initialize();
+            arm.Solver.UpdateMode = UpdateMode.FixedUpdate;
+            arm.FixedUpdate();
+            arm.FixedUpdate();
+
+            // A delegate avoids the allocations of reflection calls.
+            var lateUpdate = (Action)Delegate.CreateDelegate(typeof(Action), arm.Solver, FindPrivateMethod(arm.Solver, "LateUpdate"));
+            lateUpdate();
+
+            Assert.That(() => lateUpdate(),
+                UnityEngine.TestTools.Constraints.ConstraintExtensions.AllocatingGCMemory(Is.Not));
+        }
+
+        [Test]
         public void Apply_FailsAfterChainTransformIsDestroyed()
         {
             using var arm = PlanarArm.Create(SolverKind.CCD);
@@ -792,7 +917,7 @@ namespace OpenIK.Editor.Tests
             private readonly GameObject _solverRoot;
             private readonly GameObject _target;
 
-            public OpenIKSolverBase Solver { get; private set; }
+            public SingleChainSolverBase Solver { get; private set; }
             public List<Transform> Joints { get; } = new();
             public List<HingeIKJoint> Hinges { get; } = new();
             private readonly List<Transform> _parents = new();
@@ -878,6 +1003,11 @@ namespace OpenIK.Editor.Tests
 
             public void LateUpdate() => InvokePrivate(Solver, "LateUpdate");
 
+            public void FixedUpdate() => InvokePrivate(Solver, "FixedUpdate");
+
+            /// Shows the pose a rendered frame would at the given blend between the last two fixed steps.
+            public void ShowInterpolatedPose(float blend) => InvokePrivate(Solver, "ShowInterpolatedPose", blend);
+
             /// Rotation of each chain joint relative to its IK parent.
             public Quaternion[] LocalRotations()
             {
@@ -942,13 +1072,18 @@ namespace OpenIK.Editor.Tests
             field.SetValue(instance, value);
         }
 
-        private static void InvokePrivate(object instance, string methodName)
+        private static void InvokePrivate(object instance, string methodName, params object[] args)
+        {
+            FindPrivateMethod(instance, methodName).Invoke(instance, args);
+        }
+
+        private static MethodInfo FindPrivateMethod(object instance, string methodName)
         {
             MethodInfo method = null;
             for (Type type = instance.GetType(); type != null && method == null; type = type.BaseType)
                 method = type.GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.DeclaredOnly);
             Assert.That(method, Is.Not.Null, $"Expected private method '{methodName}' on {instance.GetType().Name}.");
-            method.Invoke(instance, null);
+            return method;
         }
 
         private static void AssertVector3(Vector3 expected, Vector3 actual)

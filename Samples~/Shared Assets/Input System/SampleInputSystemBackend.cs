@@ -26,6 +26,7 @@ namespace OpenIK.Showcase
                   - (keyboard.aKey.isPressed || keyboard.leftArrowKey.isPressed ? 1f : 0f),
                     (keyboard.wKey.isPressed || keyboard.upArrowKey.isPressed ? 1f : 0f)
                   - (keyboard.sKey.isPressed || keyboard.downArrowKey.isPressed ? 1f : 0f));
+                value.RunHeld = keyboard.leftShiftKey.isPressed || keyboard.rightShiftKey.isPressed;
                 value.PortraitPressed = keyboard.pKey.wasPressedThisFrame;
                 value.CancelPressed = keyboard.escapeKey.wasPressedThisFrame;
                 value.ClearPressed = keyboard.rKey.wasPressedThisFrame;

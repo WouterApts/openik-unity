@@ -3,7 +3,7 @@ using UnityEngine;
 namespace OpenIK.Showcase
 {
     /// <summary>
-    /// Simple third-person follow camera for the spider showcase.
+    /// Simple third-person follow camera for the Spider Walker and Humanoid Walker samples.
     /// </summary>
     public class ThirdPersonFollowCamera : MonoBehaviour
     {
@@ -26,16 +26,8 @@ namespace OpenIK.Showcase
         private float yaw;
         private float pitch;
 
-        private void Reset()
-        {
-            TryAutoAssignTarget();
-        }
-
         private void Awake()
         {
-            if (target == null)
-                TryAutoAssignTarget();
-
             yaw = initialYaw;
             pitch = initialPitch;
         }
@@ -59,10 +51,7 @@ namespace OpenIK.Showcase
         private void LateUpdate()
         {
             if (target == null)
-            {
-                TryAutoAssignTarget();
-                if (target == null) return;
-            }
+                return;
 
             float posT = 1f - Mathf.Exp(-positionSmooth * Time.deltaTime);
             float rotT = 1f - Mathf.Exp(-rotationSmooth * Time.deltaTime);
@@ -87,11 +76,5 @@ namespace OpenIK.Showcase
             transform.rotation = Quaternion.Slerp(transform.rotation, desiredRot, rotT);
         }
 
-        private void TryAutoAssignTarget()
-        {
-            SpiderController controller = FindFirstObjectByType<SpiderController>();
-            if (controller != null)
-                target = controller.transform;
-        }
     }
 }

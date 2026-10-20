@@ -11,11 +11,12 @@ namespace OpenIK
     /// direction toward the end effector onto the direction toward the target, within the joint's
     /// constraint. CCD solves for position only and keeps slider segments at their current length.
     /// </remarks>
-    public class CCDIKSolver : OpenIKSolverBase
+    [AddComponentMenu("OpenIK/CCD Solver", 1)]
+    public class CCDIKSolver : SingleChainSolverBase
     {
         private const float MinRotationStep = 0.01f;
 
-        [Header("CCD")]
+        [Space(6)]
         [Tooltip("How much of each CCD rotation step is applied. Lower values can improve stability for tight constraints.")]
         [Range(MinRotationStep, 1f)]
         [SerializeField] private float rotationStep = 1f;
@@ -45,6 +46,7 @@ namespace OpenIK
                 for (int jointIdx = endIdx - 1; jointIdx >= 0; jointIdx--)
                     RotateJointTowardTarget(jointIdx, goal.Position, step);
 
+                ApplyPoles();
                 Chain.ReconstructRotations();
 
                 iteration++;

@@ -16,7 +16,7 @@ namespace OpenIK.Editor
             Vector3 pos = joint.transform.position;
             Quaternion rot = joint.GetConstraintBaseRotation();
             Vector3 constraintAxisWorld = rot * joint.constraintAxis.normalized;
-            float axisLength = 0.8f;
+            float axisLength = 1f * joint.RangeSize;
             Vector3 tip = pos + constraintAxisWorld * axisLength;
 
             var prevZTest = Handles.zTest;

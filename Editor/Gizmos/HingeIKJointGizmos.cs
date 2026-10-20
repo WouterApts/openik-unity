@@ -25,7 +25,7 @@ namespace OpenIK.Editor
             Vector3 zeroRefLocal = Quaternion.AngleAxis(joint.zeroAngleOffset, hinge) * baseDir;
             Vector3 zeroRefWorld = rot * zeroRefLocal;
 
-            float arcRadius = 0.8f;
+            float arcRadius = 1f * joint.RangeSize;
 
             var prevZTest = Handles.zTest;
             Handles.zTest = CompareFunction.Always;
