@@ -14,7 +14,7 @@ https://github.com/user-attachments/assets/124f04d5-e9f4-4067-ba43-f49f7a5b3c19
 ## What's included
 
 - **Solvers:** FABRIK and CCD solve for position, while damped least-squares Jacobian also handles orientation.
-  Multi-FABRIK solves connected chains together, with separate targets for each branch.
+  Connected chains with separate targets for each branch can be solved using Multi-FABRIK.
 - **Joint constraints:** hinge rotation limits, ball-and-socket swing/twist limits,
   and slider travel limits.
 - **Joint speed:** cap how fast each joint moves by setting its angular or
