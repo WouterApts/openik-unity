@@ -113,6 +113,47 @@ namespace OpenIK.Editor.Tests
         }
 
         [Test]
+        public void TiltedHingeElbow_StartingOffItsHinge_ReachesTheTargetExactly()
+        {
+            // The hinge axis is not the bend plane's normal, and the animated elbow is twisted off its hinge.
+            using var limb = new Limb(BentArm);
+            AddHinge(limb.Joints[1], -170f, 170f).hingeAxis = new Vector3(1f, 0.3f, 0f);
+            Transform pole = limb.AddPole(new Vector3(1f, -1f, 1f));
+            limb.Target.position = new Vector3(0.4f, -1.3f, 0.5f);
+            limb.Initialize();
+            Quaternion restLocal = Quaternion.Inverse(limb.Joints[0].rotation) * limb.Joints[1].rotation;
+            limb.Joints[1].localRotation *= Quaternion.Euler(0f, 15f, 0f);
+
+            limb.Solver.Solve();
+
+            Pose[] solved = limb.SolvedPoses();
+            Assert.That(limb.Solver.LastSolution.FinalError, Is.LessThan(PositionEpsilon));
+            Quaternion bend = Quaternion.Inverse(restLocal) * (Quaternion.Inverse(solved[0].rotation) * solved[1].rotation);
+            Vector3 axis = new Vector3(1f, 0.3f, 0f).normalized;
+            float angle = HingeIKJoint.ExtractHingeAngle(bend, axis);
+            Assert.That(Quaternion.Angle(bend, Quaternion.AngleAxis(angle, axis)), Is.LessThan(AngleEpsilon), "The elbow turned off its hinge.");
+            Vector3 reach = (solved[2].position - solved[0].position).normalized;
+            Assert.That(Vector3.Angle(
+                Vector3.ProjectOnPlane(solved[1].position - solved[0].position, reach),
+                Vector3.ProjectOnPlane(pole.position - solved[0].position, reach)), Is.LessThan(AngleEpsilon));
+        }
+
+        [Test]
+        public void HingeUpperJoint_ReachesTheTargetExactly()
+        {
+            using var limb = new Limb(BentArm);
+            AddHinge(limb.Joints[0], -170f, 170f);
+            limb.Target.position = new Vector3(0.5f, -1.2f, 0.6f);
+            limb.Initialize();
+
+            limb.Solver.Solve();
+
+            Quaternion upper = limb.SolvedPoses()[0].rotation;
+            Assert.That(limb.Solver.LastSolution.FinalError, Is.LessThan(PositionEpsilon));
+            Assert.That(Mathf.Abs(upper.y) + Mathf.Abs(upper.z), Is.LessThan(1e-4f), "The upper joint turned around another axis.");
+        }
+
+        [Test]
         public void OverextendedLimb_BendsTowardItsRestSide()
         {
             using var limb = new Limb(BentArm);
@@ -270,12 +311,13 @@ namespace OpenIK.Editor.Tests
             }
         }
 
-        private static void AddHinge(Transform joint, float min, float max)
+        private static HingeIKJoint AddHinge(Transform joint, float min, float max)
         {
             var hinge = joint.gameObject.AddComponent<HingeIKJoint>();
             hinge.hingeAxis = Vector3.right;
             hinge.hingeMinAngle = min;
             hinge.hingeMaxAngle = max;
+            return hinge;
         }
 
         private sealed class Limb : IDisposable

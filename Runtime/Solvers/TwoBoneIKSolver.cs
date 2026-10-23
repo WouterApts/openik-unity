@@ -19,8 +19,11 @@ namespace OpenIK
     /// <remarks>
     /// Joints holds exactly three joints: upper (shoulder or hip), middle (elbow or knee), and end
     /// (wrist or ankle). A pole on the middle joint sets the bend side. Without one, a bent limb keeps
-    /// its current bend side and a nearly straight limb keeps the rest pose's. The solver does not
-    /// solve slider translation; slider segments keep their current length.
+    /// its current bend side and a nearly straight limb keeps the rest pose's. A hinge on the middle
+    /// joint, or on the upper joint with a free middle joint, is solved exactly within its limits. With a
+    /// hinge on the upper joint, the pole only picks between the two bend sides the hinge allows. Other
+    /// joint limits are applied after the solve and can keep the end joint from reaching its target. The
+    /// solver does not solve slider translation; slider segments keep their current length.
     /// </remarks>
     [AddComponentMenu("OpenIK/Two Bone Solver", 3)]
     public class TwoBoneIKSolver : SingleChainSolverBase
@@ -40,6 +43,9 @@ namespace OpenIK
         // before the current bend fully decides the bend side. Closer to straight, the rest pose's bend
         // side takes over, so a straight or overextended limb does not flip.
         private const float BendBlendRange = 0.15f;
+
+        // Two hinge angles whose clamps differ by less than this many degrees count as equally limited.
+        private const float AngleTie = 1e-3f;
 
         [Space(6)]
         [Tooltip("How the end joint turns.\n" +
@@ -141,7 +147,12 @@ namespace OpenIK
             Vector3 middleTarget = root + upperLength * (cos * reachDirection + sin * bend);
             Vector3 endTarget = root + reachDirection * reach;
 
-            TurnUpperAndMiddle(root, middleTarget, endTarget, bend);
+            bool solvedHinge = joints[1].Angular is HingeAngularConstraint middleHinge
+                ? TrySolveMiddleHinge(middleHinge, root, endTarget, reach, bend)
+                : Chain.RootParentTransform != null && joints[0].Angular is HingeAngularConstraint upperHinge
+                  && TrySolveUpperHinge(upperHinge, root, endTarget, bend);
+            if (!solvedHinge)
+                TurnUpperAndMiddle(root, middleTarget, endTarget, bend);
             ClampUpperAndMiddle();
             TurnEnd(goal);
 
@@ -244,14 +255,114 @@ namespace OpenIK
                 ? Quaternion.LookRotation(newUpper, newNormal) * Quaternion.Inverse(Quaternion.LookRotation(oldUpper, oldNormal))
                 : Quaternion.FromToRotation(oldUpper, newUpper);
 
-            joints[0].SolverRotation = Quaternion.Normalize(upperTurn * joints[0].SolverRotation);
-            Chain.RotateAndRepositionDownstream(0, upperTurn);
+            TurnJoint(0, upperTurn);
+            AimMiddleAt(endTarget);
+        }
 
-            Quaternion lowerTurn = Quaternion.FromToRotation(
+        // A hinge on the middle joint can only bend around its axis. Solving the bend in the bend plane
+        // and clamping afterwards would swing the end joint off the target whenever the hinge axis is not
+        // that plane's normal, or the starting pose rotates the middle joint off its hinge. Instead, the
+        // hinge angle that gives the reach is solved directly, then the upper joint aims the limb at the
+        // target and swivels it around the reach line toward the bend side.
+        private bool TrySolveMiddleHinge(HingeAngularConstraint hinge, Vector3 root, Vector3 endTarget, float reach, Vector3 bend)
+        {
+            SolverJoint[] joints = Chain.Joints;
+            Quaternion zeroRotation = joints[0].SolverRotation * joints[1].RestLocalRotation;
+            Vector3 axis = zeroRotation * hinge.HingeAxis;
+            Vector3 upper = joints[1].SolverPosition - root;
+            Vector3 lowerAtZero = zeroRotation * (Quaternion.Inverse(joints[1].SolverRotation) * (joints[2].SolverPosition - joints[1].SolverPosition));
+            if (!TrySolveHingeAngles(upper, lowerAtZero, axis, reach, out float straight, out float offset))
+                return false;
+
+            // The two angles bend to either side of straight. Like the bend plane solve, keep the rest
+            // pose's side, or the current side when the rest pose is straight, so the limb does not flip.
+            float current = HingeIKJoint.ExtractHingeAngle(Quaternion.Inverse(zeroRotation) * joints[1].SolverRotation, hinge.HingeAxis);
+            float side = Mathf.DeltaAngle(straight, _bendLocal.sqrMagnitude > 0f ? 0f : current);
+            float angle = PickHingeAngle(hinge, straight - offset, straight + offset, -side, side);
+
+            TurnJoint(1, zeroRotation * Quaternion.AngleAxis(angle, hinge.HingeAxis) * Quaternion.Inverse(joints[1].SolverRotation));
+            TurnJoint(0, Quaternion.FromToRotation(joints[2].SolverPosition - root, endTarget - root));
+
+            Vector3 reachDirection = (endTarget - root).normalized;
+            // A straight limb has no bend side to swivel.
+            Vector3 middleSide = Vector3.ProjectOnPlane(joints[1].SolverPosition - root, reachDirection);
+            if (middleSide.sqrMagnitude > ParallelSqr * upper.sqrMagnitude)
+                TurnJoint(0, Quaternion.AngleAxis(Vector3.SignedAngle(middleSide, bend, reachDirection), reachDirection));
+            return true;
+        }
+
+        // A hinge on the upper joint keeps the middle joint on a circle around the hinge axis. The upper
+        // joint turns to the point on that circle one lower-bone length from the target, the one on the bend
+        // side when there are two, and the middle joint then aims the end joint at the target. The bend side
+        // only picks between those two points; the hinge leaves no other choice.
+        private bool TrySolveUpperHinge(HingeAngularConstraint hinge, Vector3 root, Vector3 endTarget, Vector3 bend)
+        {
+            SolverJoint[] joints = Chain.Joints;
+            Quaternion zeroRotation = Chain.RootParentRotation * joints[0].RestLocalRotation;
+            Vector3 axis = zeroRotation * hinge.HingeAxis;
+            Vector3 upperAtZero = zeroRotation * (Quaternion.Inverse(joints[0].SolverRotation) * (joints[1].SolverPosition - root));
+            float lowerLength = Vector3.Distance(joints[2].SolverPosition, joints[1].SolverPosition);
+            if (!TrySolveHingeAngles(root - endTarget, upperAtZero, axis, lowerLength, out float straight, out float offset))
+                return false;
+
+            float first = straight - offset;
+            float second = straight + offset;
+            float angle = PickHingeAngle(hinge, first, second,
+                Vector3.Dot(Quaternion.AngleAxis(first, axis) * upperAtZero, bend),
+                Vector3.Dot(Quaternion.AngleAxis(second, axis) * upperAtZero, bend));
+
+            TurnJoint(0, zeroRotation * Quaternion.AngleAxis(angle, hinge.HingeAxis) * Quaternion.Inverse(joints[0].SolverRotation));
+            AimMiddleAt(endTarget);
+            return true;
+        }
+
+        // Turning q around axis by straight ± offset degrees makes |p + q| equal length. At straight, |p + q|
+        // is longest. Out of range, the angles give the nearest length possible. False when p or q runs
+        // along the axis, so turning q cannot change the length.
+        private static bool TrySolveHingeAngles(Vector3 p, Vector3 q, Vector3 axis, float length, out float straight, out float offset)
+        {
+            straight = offset = 0f;
+            Vector3 pAcross = Vector3.ProjectOnPlane(p, axis);
+            Vector3 qAcross = Vector3.ProjectOnPlane(q, axis);
+            if (pAcross.sqrMagnitude * qAcross.sqrMagnitude <= ParallelSqr * p.sqrMagnitude * q.sqrMagnitude)
+                return false;
+
+            // |p + q|² = p² + q² + 2(p·q along the axis) + 2|pAcross||qAcross|cos(angle between them).
+            float along = Vector3.Dot(p, axis) * Vector3.Dot(q, axis);
+            float cos = (length * length - p.sqrMagnitude - q.sqrMagnitude - 2f * along) / (2f * pAcross.magnitude * qAcross.magnitude);
+            offset = Mathf.Acos(Mathf.Clamp(cos, -1f, 1f)) * Mathf.Rad2Deg;
+            straight = Vector3.SignedAngle(qAcross, pAcross, axis);
+            return true;
+        }
+
+        // Clamps both angles to the hinge limits and keeps the one the limits change least. On a tie, such
+        // as both inside the limits, it keeps the one with the higher preference.
+        private static float PickHingeAngle(HingeAngularConstraint hinge, float first, float second, float firstPreference, float secondPreference)
+        {
+            first = Mathf.DeltaAngle(0f, first);
+            second = Mathf.DeltaAngle(0f, second);
+            float clampedFirst = Mathf.Clamp(first, hinge.MinAngle, hinge.MaxAngle);
+            float clampedSecond = Mathf.Clamp(second, hinge.MinAngle, hinge.MaxAngle);
+            float firstChange = Mathf.Abs(clampedFirst - first);
+            float secondChange = Mathf.Abs(clampedSecond - second);
+            bool pickFirst = Mathf.Abs(firstChange - secondChange) > AngleTie ? firstChange < secondChange : firstPreference >= secondPreference;
+            return pickFirst ? clampedFirst : clampedSecond;
+        }
+
+        // Turns the middle joint so the lower bone points at endTarget.
+        private void AimMiddleAt(Vector3 endTarget)
+        {
+            SolverJoint[] joints = Chain.Joints;
+            TurnJoint(1, Quaternion.FromToRotation(
                 joints[2].SolverPosition - joints[1].SolverPosition,
-                endTarget - joints[1].SolverPosition);
-            joints[1].SolverRotation = Quaternion.Normalize(lowerTurn * joints[1].SolverRotation);
-            Chain.RotateAndRepositionDownstream(1, lowerTurn);
+                endTarget - joints[1].SolverPosition));
+        }
+
+        private void TurnJoint(int index, Quaternion turn)
+        {
+            SolverJoint joint = Chain.Joints[index];
+            joint.SolverRotation = Quaternion.Normalize(turn * joint.SolverRotation);
+            Chain.RotateAndRepositionDownstream(index, turn);
         }
 
         // Clamps the upper and middle joints to their constraints. A root without a parent transform

@@ -442,6 +442,8 @@ namespace OpenIK
         public override bool NeedsCurrentDeviation => false;
         public override int DofCount => 1;
         public Vector3 HingeAxis => _config.HingeAxis;
+        public float MinAngle => _config.MinAngle;
+        public float MaxAngle => _config.MaxAngle;
 
         /// <summary>Updates the angle limits. The hinge axis and constraint frame keep their values from setup.</summary>
         public void ApplyConfig(Config config)
