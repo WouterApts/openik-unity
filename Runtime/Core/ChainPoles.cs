@@ -386,11 +386,9 @@ namespace OpenIK
             return Mathf.Atan2(Vector3.Dot(Vector3.Cross(from, to), axis), Vector3.Dot(from, to)) * Mathf.Rad2Deg;
         }
 
-        // Free joints have no limits, and solvers leave a root without a parent transform unclamped.
+        // Free joints have no limits.
         private static bool HasLimits(SolverChain chain, int index)
         {
-            if (index == 0 && chain.RootParentTransform == null)
-                return false;
             return chain.Joints[index].Angular is not FreeAngularConstraint;
         }
 

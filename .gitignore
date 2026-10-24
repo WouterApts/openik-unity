@@ -25,6 +25,7 @@
 .copilot/
 .github/copilot-instructions.md
 AGENTS.md
+AGENTS.md.meta
 Docs/
 Source~/
 *_Recovery*/

@@ -73,7 +73,8 @@ section cannot cross a branch point.
 
 `TwoBoneIKSolver` places a limb of exactly three joints (upper, middle, and end) directly, in one
 step. A pole connected to the middle joint sets the bend side (see [Poles](#poles)). Without one, the limb keeps
-its current bend. Two Bone IK does not solve slider translation.
+its current bend. A hinge on the middle joint, or on the upper joint when the middle joint is not a
+hinge, is solved exactly within its limits. Two Bone IK does not solve slider translation.
 
 - **End Rotation:** **Match Target** copies the target's rotation, keeping the end joint's offset to
   the target from initialization (`EndRotationOffset`). **Align Up** aligns the end joint's up axis
@@ -86,6 +87,8 @@ its current bend. Two Bone IK does not solve slider translation.
 Add joint components to the transforms that act as constrained joints in your chain.
 
 When the solver initializes in Awake, it records the joints' starting positions and rotations. This is the *rest pose*, which provides the reference for joint limits.
+Each joint's limits are measured relative to its IK parent. For the root joint, that is its parent
+transform, or world space when it has none.
 Arrange the chain in its intended starting pose before entering Play mode. If you create the chain through code, set up its pose before the solver initializes.
 
 | Component | Constraint |

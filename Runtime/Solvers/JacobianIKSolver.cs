@@ -288,11 +288,6 @@ namespace OpenIK
             for (int i = 0; i < _jointCount; i++)
             {
                 IAngularConstraint angular = _joints[i].Angular;
-
-                // A root without a parent transform has no frame to clamp against.
-                if (i == 0 && Chain.RootParentTransform == null)
-                    continue;
-
                 Quaternion parentRotWorld = Chain.GetParentSolverRotation(i);
                 Quaternion preRotation = _joints[i].SolverRotation;
                 Quaternion constraintDeviation = _joints[i].ToConstraintDeviation(parentRotWorld, preRotation);

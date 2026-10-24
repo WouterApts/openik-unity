@@ -16,6 +16,11 @@ namespace OpenIK
     public sealed class SolverChain
     {
         public SolverJoint[] Joints { get; private set; } = Array.Empty<SolverJoint>();
+
+        /// <summary>
+        /// The root joint's parent transform, or null when the root has none. A root without a parent is
+        /// constrained relative to world space.
+        /// </summary>
         public Transform RootParentTransform { get; private set; }
 
         /// <summary>

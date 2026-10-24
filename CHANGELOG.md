@@ -2,6 +2,15 @@
 
 This file lists the notable changes in each OpenIK release.
 
+## [0.9.1] - 2026-10-25
+
+### Fixed
+
+- The Two Bone Solver now solves a hinge on the middle joint, or on the upper joint when the middle
+  joint is not a hinge, exactly within its limits. The end joint no longer swings off the target.
+- A root joint without a parent transform now keeps its joint limits, measured in world space.
+  FABRIK, Jacobian, Two Bone, Multi FABRIK, and poles used to ignore them.
+
 ## [0.9.0] - 2026-10-20
 
 ### Breaking changes

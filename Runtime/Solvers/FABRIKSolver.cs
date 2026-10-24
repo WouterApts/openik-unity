@@ -186,18 +186,15 @@ namespace OpenIK
         {
             Joints[0].SolverPosition = rootPosition;
 
-            // Constrain the root relative to the transform it is parented to, if any.
-            if (Chain.RootParentTransform != null)
-            {
-                Quaternion rootRotation = Joints[0].SolverRotation;
-                Quaternion clampedRootRotation = Joints[0].ClampRotation(Chain.RootParentRotation, rootRotation, rootRotation);
+            // Constrain the root relative to its parent transform, or to world space when it has none.
+            Quaternion rootRotation = Joints[0].SolverRotation;
+            Quaternion clampedRootRotation = Joints[0].ClampRotation(Chain.RootParentRotation, rootRotation, rootRotation);
 
-                if (clampedRootRotation != rootRotation)
-                {
-                    Quaternion delta = clampedRootRotation * Quaternion.Inverse(Joints[0].SolverRotation);
-                    Joints[0].SolverRotation = clampedRootRotation;
-                    Chain.RotateAndRepositionDownstream(0, delta);
-                }
+            if (clampedRootRotation != rootRotation)
+            {
+                Quaternion delta = clampedRootRotation * Quaternion.Inverse(Joints[0].SolverRotation);
+                Joints[0].SolverRotation = clampedRootRotation;
+                Chain.RotateAndRepositionDownstream(0, delta);
             }
 
             for (int childIdx = 1; childIdx <= EndJointIdx; childIdx++)

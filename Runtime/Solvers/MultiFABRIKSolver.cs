@@ -589,14 +589,12 @@ namespace OpenIK
                     FitJoint(0, false, ref position, ref rootRotation);
                     Joints[0].SolverRotation = rootRotation;
                 }
-                if (Chain.RootParentTransform != null)
+                // Without a parent transform, the root is constrained in world space.
+                Quaternion clamped = ClampTreeRotation(0, Chain.RootParentRotation, rootRotation, rootRotation);
+                if (!SameRotation(clamped, rootRotation))
                 {
-                    Quaternion clamped = ClampTreeRotation(0, Chain.RootParentRotation, rootRotation, rootRotation);
-                    if (!SameRotation(clamped, rootRotation))
-                    {
-                        Joints[0].SolverRotation = clamped;
-                        Chain.RotateAndRepositionDownstream(0, clamped * Quaternion.Inverse(rootRotation));
-                    }
+                    Joints[0].SolverRotation = clamped;
+                    Chain.RotateAndRepositionDownstream(0, clamped * Quaternion.Inverse(rootRotation));
                 }
             }
             for (int i = 1; i < Joints.Length; i++)
@@ -643,7 +641,7 @@ namespace OpenIK
                 }
                 else if (_held[i])
                     joint.SolverRotation = parentRotation * _incomingLocal[i];
-                else if (joint.Angular is not FreeAngularConstraint && (i > 0 || Chain.RootParentTransform != null))
+                else if (joint.Angular is not FreeAngularConstraint)
                 {
                     Quaternion deviation = joint.ToConstraintDeviation(parentRotation, joint.SolverRotation);
                     joint.SolverRotation = joint.FromConstraintDeviation(parentRotation,

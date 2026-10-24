@@ -37,7 +37,7 @@ In Unity, open **Window > Package Manager**, select **+ > Install package from
 git URL** (called **Add package from git URL** in some versions), and paste:
 
 ```text
-https://github.com/WouterApts/openik-unity.git#v0.9.0
+https://github.com/WouterApts/openik-unity.git#v0.9.1
 ```
 
 The version tag pins your project to a release. To upgrade later, change the tag
@@ -67,7 +67,7 @@ and execution settings.
 
 In a Unity 6 URP project, select OpenIK in Package Manager and open **Samples**.
 Import **Shared Assets** first, then **Sample Chains**, **Robotic Painter**, or
-**Spider Walker**. Open the scenes under `Assets/Samples/OpenIK/0.9.0/`.
+**Spider Walker**. Open the scenes under `Assets/Samples/OpenIK/0.9.1/`.
 
 Press Play and click the Game view. The on-screen guide will list the controls.
 See the [sample guide](Documentation~/samples.md) for scenes, controls, and setup.

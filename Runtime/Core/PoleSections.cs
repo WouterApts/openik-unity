@@ -187,8 +187,7 @@ namespace OpenIK
             return neighbour;
         }
 
-        // Matches the runtime bindings: a joint without an enabled joint component is free. Solvers
-        // do not clamp a root without a parent transform, so such a root is free as well. A custom
+        // Matches the runtime bindings: a joint without an enabled joint component is free. A custom
         // joint type is unknown, so the search does not pass it.
         private static TwistSupport GetTwistSupport(IReadOnlyList<Transform> joints, int index)
         {
@@ -197,9 +196,6 @@ namespace OpenIK
                 return TwistSupport.Unknown;
 
             if (!joint.TryGetComponent(out ConstrainedJoint constrained) || !constrained.jointIsEnabled)
-                return TwistSupport.Free;
-
-            if (index == 0 && joint.parent == null)
                 return TwistSupport.Free;
 
             return constrained switch
