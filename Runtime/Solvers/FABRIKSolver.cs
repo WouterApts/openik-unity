@@ -9,9 +9,9 @@ namespace OpenIK
     /// <remarks>
     /// Each iteration runs two passes. The forward pass places the end effector on the target and
     /// works toward the root, moving each joint to its segment length from the next one. The backward
-    /// pass puts the root back in place and rebuilds the chain toward the end effector. Joint
-    /// constraints are applied in both passes, and slider segments change length within their limits.
-    /// FABRIK solves for position only; use <see cref="JacobianIKSolver"/> to match orientation too.
+    /// pass puts the root back in place and works toward the end effector, turning each joint toward
+    /// the forward position of its child joint. Joint constraints are applied in both passes.
+    /// FABRIK solves for position only. use <see cref="JacobianIKSolver"/> to match orientation too.
     /// </remarks>
     [AddComponentMenu("OpenIK/FABRIK Solver", 0)]
     public class FABRIKSolver : SingleChainSolverBase
@@ -125,7 +125,8 @@ namespace OpenIK
         // Forward pass, from the end effector to the root. Places the end effector on the target, then
         // moves each parent to its segment length from its child and turns it to face the child. When
         // the child's constraint corrects its rotation, the chain below the parent is swung and shifted
-        // so the end effector stays on the target.
+        // so the end effector stays on the target. The root is limited last, against its parent
+        // transform.
         private void ForwardReach(Vector3 targetPosition)
         {
             Joints[EndJointIdx].SolverPosition = targetPosition;
@@ -145,83 +146,86 @@ namespace OpenIK
                                                        * Joints[parentIdx].SolverRotation;
                 }
 
-                Quaternion parentRotation = Joints[parentIdx].SolverRotation;
-                Quaternion childRotation = Joints[childIdx].SolverRotation;
-                Quaternion clampedChildRotation = Joints[childIdx].ClampRotation(parentRotation, childRotation, childRotation);
-
-                if (clampedChildRotation != childRotation)
-                {
-                    Vector3 endPosBefore = Joints[EndJointIdx].SolverPosition;
-
-                    // 1. Rotate the child, and everything below it, into its constraint.
-                    Quaternion delta = clampedChildRotation * Quaternion.Inverse(Joints[childIdx].SolverRotation);
-                    Joints[childIdx].SolverRotation = clampedChildRotation;
-                    Chain.RotateAndRepositionDownstream(childIdx, delta);
-
-                    // 2. Swing the chain around the parent so the end effector points back at the target.
-                    Vector3 fromParent = Joints[EndJointIdx].SolverPosition - Joints[parentIdx].SolverPosition;
-                    Vector3 toParent = endPosBefore - Joints[parentIdx].SolverPosition;
-                    if (fromParent.sqrMagnitude > 0f && toParent.sqrMagnitude > 0f)
-                    {
-                        Quaternion compensation = Quaternion.FromToRotation(fromParent, toParent);
-                        Joints[parentIdx].SolverRotation = compensation * Joints[parentIdx].SolverRotation;
-                        Chain.RotateAndRepositionDownstream(parentIdx, compensation);
-                    }
-
-                    // 3. Shift the chain so the end effector sits exactly on the target again.
-                    Vector3 remainingOffset = endPosBefore - Joints[EndJointIdx].SolverPosition;
-                    for (int i = parentIdx; i <= EndJointIdx; i++)
-                        Joints[i].SolverPosition += remainingOffset;
-                }
+                ClampKeepingEndInPlace(childIdx, Joints[parentIdx].SolverRotation, parentIdx);
 
                 childIdx = parentIdx;
                 parentIdx = Joints[parentIdx].ParentIndex;
             }
+            
+            ClampKeepingEndInPlace(0, Chain.RootParentRotation, 0);
+        }
+
+        // Clamps a joint against its parent's rotation. When the clamp changes the joint, this swings the
+        // chain around the pivot joint and shifts it, so the end effector stays where it was.
+        private void ClampKeepingEndInPlace(int jointIdx, Quaternion parentRotation, int pivotIdx)
+        {
+            Quaternion rotation = Joints[jointIdx].SolverRotation;
+            Quaternion clampedRotation = Joints[jointIdx].ClampRotation(parentRotation, rotation, rotation);
+            if (clampedRotation == rotation)
+                return;
+
+            Vector3 endPosBefore = Joints[EndJointIdx].SolverPosition;
+
+            // 1. Rotate the joint, and everything below it, into its constraint.
+            Quaternion delta = clampedRotation * Quaternion.Inverse(rotation);
+            Joints[jointIdx].SolverRotation = clampedRotation;
+            Chain.RotateAndRepositionDownstream(jointIdx, delta);
+
+            // 2. Swing the chain around the pivot so the end effector points back where it was.
+            Vector3 fromPivot = Joints[EndJointIdx].SolverPosition - Joints[pivotIdx].SolverPosition;
+            Vector3 toPivot = endPosBefore - Joints[pivotIdx].SolverPosition;
+            if (fromPivot.sqrMagnitude > 0f && toPivot.sqrMagnitude > 0f)
+            {
+                Quaternion compensation = Quaternion.FromToRotation(fromPivot, toPivot);
+                Joints[pivotIdx].SolverRotation = compensation * Joints[pivotIdx].SolverRotation;
+                Chain.RotateAndRepositionDownstream(pivotIdx, compensation);
+            }
+
+            // 3. Shift the chain so the end effector sits exactly where it was again.
+            Vector3 remainingOffset = endPosBefore - Joints[EndJointIdx].SolverPosition;
+            for (int i = pivotIdx; i <= EndJointIdx; i++)
+                Joints[i].SolverPosition += remainingOffset;
         }
 
         // Backward pass, from the root to the end effector. Puts the root back at its starting
-        // position, then places each joint from its parent's pose and turns it toward its child within
-        // its constraint. Every rotation is carried down to the joints below.
+        // position, then turns each joint toward the position the forward pass gave its child, within
+        // its constraint, and places the child from the joint's new pose.
         private void BackwardReach(Vector3 rootPosition)
         {
             Joints[0].SolverPosition = rootPosition;
 
-            // Constrain the root relative to its parent transform, or to world space when it has none.
-            Quaternion rootRotation = Joints[0].SolverRotation;
-            Quaternion clampedRootRotation = Joints[0].ClampRotation(Chain.RootParentRotation, rootRotation, rootRotation);
-
-            if (clampedRootRotation != rootRotation)
-            {
-                Quaternion delta = clampedRootRotation * Quaternion.Inverse(Joints[0].SolverRotation);
-                Joints[0].SolverRotation = clampedRootRotation;
-                Chain.RotateAndRepositionDownstream(0, delta);
-            }
+            // Without a parent transform, the root is constrained relative to world space.
+            TurnTowardChild(0, Chain.RootParentRotation);
 
             for (int childIdx = 1; childIdx <= EndJointIdx; childIdx++)
             {
                 int parentIdx = childIdx - 1;
-                Quaternion parentRotation = Joints[parentIdx].SolverRotation;
-
                 Joints[childIdx].SolverPosition = ComputeRepositionedChild(childIdx, parentIdx);
-
-                // Turn the child to point at its own child. The end effector keeps its rotation.
-                Quaternion desiredChildRotation = Joints[childIdx].SolverRotation;
-                if (childIdx != EndJointIdx)
-                {
-                    int nextChildIdx = childIdx + 1;
-                    Vector3 currentDir = Joints[childIdx].SolverRotation * GetCurrentSegmentLocalOffset(nextChildIdx);
-                    Vector3 desiredDir = Joints[nextChildIdx].SolverPosition - Joints[childIdx].SolverPosition;
-                    if (currentDir.sqrMagnitude > 0f && desiredDir.sqrMagnitude > 0f)
-                        desiredChildRotation = Quaternion.FromToRotation(currentDir, desiredDir) * Joints[childIdx].SolverRotation;
-                }
-
-                Quaternion clampedChildRotation = Joints[childIdx].ClampRotation(
-                    parentRotation, Joints[childIdx].SolverRotation, desiredChildRotation);
-
-                Quaternion childDelta = clampedChildRotation * Quaternion.Inverse(Joints[childIdx].SolverRotation);
-                Joints[childIdx].SolverRotation = clampedChildRotation;
-                Chain.RotateAndRepositionDownstream(childIdx, childDelta);
+                TurnTowardChild(childIdx, Joints[parentIdx].SolverRotation);
             }
+        }
+
+        // Turns a joint toward its child's current position, within its constraint. The end effector
+        // has no child and is only clamped. The turn carries down to the rotations below but not to
+        // the positions.
+        private void TurnTowardChild(int jointIdx, Quaternion parentRotation)
+        {
+            Quaternion rotation = Joints[jointIdx].SolverRotation;
+            Quaternion desiredRotation = rotation;
+            if (jointIdx != EndJointIdx)
+            {
+                int childIdx = jointIdx + 1;
+                Vector3 currentDir = rotation * GetCurrentSegmentLocalOffset(childIdx);
+                Vector3 desiredDir = Joints[childIdx].SolverPosition - Joints[jointIdx].SolverPosition;
+                if (currentDir.sqrMagnitude > 0f && desiredDir.sqrMagnitude > 0f)
+                    desiredRotation = Quaternion.FromToRotation(currentDir, desiredDir) * rotation;
+            }
+
+            Quaternion clampedRotation = Joints[jointIdx].ClampRotation(parentRotation, rotation, desiredRotation);
+            Quaternion delta = clampedRotation * Quaternion.Inverse(rotation);
+            Joints[jointIdx].SolverRotation = clampedRotation;
+            for (int i = jointIdx + 1; i <= EndJointIdx; i++)
+                Joints[i].SolverRotation = delta * Joints[i].SolverRotation;
         }
 
         private Vector3 ComputeRepositionedParent(int childIdx, int parentIdx)
