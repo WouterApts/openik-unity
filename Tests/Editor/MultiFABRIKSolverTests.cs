@@ -29,6 +29,9 @@ namespace OpenIK.Editor.Tests
             using var plain = new Rig(offsets, new[] { -1, 0, 1, 2 });
             if (constrained)
             {
+                // The root hinge covers the root limit correction at the end of the forward pass.
+                AddHinge(multi.Joints[0]);
+                AddHinge(plain.Joints[0]);
                 AddHinge(multi.Joints[1]);
                 AddHinge(plain.Joints[1]);
             }

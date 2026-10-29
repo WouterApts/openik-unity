@@ -55,7 +55,7 @@ namespace OpenIK
 
         // Per tree joint. Driven: an active target at or below it pulls on it. Held: it keeps its
         // incoming pose relative to its parent, because its chain is disabled or nothing drives it.
-        // Moved is scratch for TranslateSubtree and is all false between calls.
+        // Moved is scratch for TranslateSubtree and TurnSubtreeRotations and is all false between calls.
         private bool[] _driven, _held, _moved;
 
         // Each joint's rotation and offset relative to its parent when the solve starts, for held joints.
@@ -68,6 +68,7 @@ namespace OpenIK
         private Vector3 _rootPosition;
         private Quaternion _rootRotation;
         private float _rootPin;
+        private int _activeTips;
         private bool _converged;
 
         protected override string SolverName => "Multi FABRIK Solver";
@@ -402,11 +403,13 @@ namespace OpenIK
             _rootPosition = Joints[0].SolverPosition;
             _rootRotation = Joints[0].SolverRotation;
             _rootPin = RootPin;
+            _activeTips = 0;
             Array.Clear(_driven, 0, _driven.Length);
             for (int c = 0; c < _chains.Count; c++)
             {
                 MultiFABRIKChain entry = _chains[c];
                 bool active = entry.Enabled && entry.Target != null;
+                if (active) _activeTips++;
                 Vector3 target = active ? entry.Target.position : Vector3.zero;
                 int tip = _tree.Chains[c].TipIndex;
                 Vector3 delta = target - _rootPosition;
@@ -454,9 +457,13 @@ namespace OpenIK
                 for (int k = 0; k < Chain.GetChildCount(i); k++)
                 {
                     int child = Chain.GetChild(i, k);
-                    if (!_held[child]) CorrectChildLimit(i, child);
+                    if (!_held[child]) CorrectLimit(child, Joints[i].SolverRotation, i);
                 }
             }
+
+            // The root is no joint's child, so the loop never limits it. Swinging the tree around the
+            // root keeps a single tip on its goal, but would pull several tips off theirs.
+            if (!_held[0] && _activeTips == 1) CorrectLimit(0, Chain.RootParentRotation, 0);
         }
 
         // Fits a joint's pose to its children's current positions. It sets only this joint's pose and
@@ -499,7 +506,8 @@ namespace OpenIK
             }
             if (index == 0)
             {
-                ownPosition = _rootPosition;
+                // When only its rotation is fitted, the root aims from where it is.
+                if (fitPosition) ownPosition = _rootPosition;
                 ownRotation = _rootRotation;
             }
             float pin = owner < 0 ? (fitPosition ? 0f : _rootPin) : _goals[owner].Pin;
@@ -568,42 +576,26 @@ namespace OpenIK
                 ? Joints[index].RestLocalRotation : _incomingLocal[index]);
 
         // The root-to-tip pass. Pins the root, then puts each joint at its segment length from its
-        // parent and turns it toward its children within its limits. Held joints get their incoming
-        // local pose back.
+        // parent and turns it toward its children's forward pass positions within its limits. Held
+        // joints get their incoming local pose back.
         private void BackwardReach()
         {
             // Pin the root after the forward pass's limit corrections. Move only the root, so its
             // children stay on their goals.
             Joints[0].SolverPosition = Vector3.Lerp(Joints[0].SolverPosition, _rootPosition, _rootPin);
-            if (_held[0])
-            {
-                Joints[0].SolverPosition = _rootPosition;
-                Joints[0].SolverRotation = _rootRotation;
-            }
-            else
-            {
-                Quaternion rootRotation = Joints[0].SolverRotation;
-                if (Chain.GetChildCount(0) > 1 || _tree.PointJunctions[0])
-                {
-                    Vector3 position = Joints[0].SolverPosition;
-                    FitJoint(0, false, ref position, ref rootRotation);
-                    Joints[0].SolverRotation = rootRotation;
-                }
-                // Without a parent transform, the root is constrained in world space.
-                Quaternion clamped = ClampTreeRotation(0, Chain.RootParentRotation, rootRotation, rootRotation);
-                if (!SameRotation(clamped, rootRotation))
-                {
-                    Joints[0].SolverRotation = clamped;
-                    Chain.RotateAndRepositionDownstream(0, clamped * Quaternion.Inverse(rootRotation));
-                }
-            }
-            for (int i = 1; i < Joints.Length; i++)
+            for (int i = 0; i < Joints.Length; i++)
             {
                 int parent = Joints[i].ParentIndex;
-                Quaternion parentRotation = Joints[parent].SolverRotation;
+                // Without a parent transform, the root is constrained in world space.
+                Quaternion parentRotation = Chain.GetParentSolverRotation(i);
                 Quaternion before = Joints[i].SolverRotation;
                 Quaternion desired;
-                if (_held[i])
+                if (_held[i] && i == 0)
+                {
+                    Joints[0].SolverPosition = _rootPosition;
+                    desired = _rootRotation;
+                }
+                else if (_held[i])
                 {
                     Joints[i].SolverPosition = Joints[parent].SolverPosition + parentRotation * _incomingOffset[i];
                     Joints[i].Segment.SyncFromLocalOffset(_incomingOffset[i]);
@@ -611,15 +603,24 @@ namespace OpenIK
                 }
                 else
                 {
-                    Joints[i].SolverPosition = Joints[i].Segment.ConstrainChildPosition(new ISegmentConstraint.SolveContext(
-                        Joints[parent].SolverPosition, parentRotation, Joints[i].SolverPosition));
+                    if (i > 0)
+                    {
+                        Joints[i].SolverPosition = Joints[i].Segment.ConstrainChildPosition(new ISegmentConstraint.SolveContext(
+                            Joints[parent].SolverPosition, parentRotation, Joints[i].SolverPosition));
+                    }
                     desired = before;
+
+                    // A joint with several children keeps the rotation the forward pass fitted to all
+                    // its branches. Fitting it again here, while each branch also turns toward its
+                    // forward pass positions, slows convergence. The root still fits, for Root Pin.
                     Vector3 position = Joints[i].SolverPosition;
-                    FitJoint(i, false, ref position, ref desired);
+                    bool keepsForwardFit = i > 0 && Chain.GetChildCount(i) > 1 && !_tree.PointJunctions[i];
+                    if (!keepsForwardFit)
+                        FitJoint(i, false, ref position, ref desired);
                     desired = ClampTreeRotation(i, parentRotation, before, desired);
                 }
                 Joints[i].SolverRotation = desired;
-                Chain.RotateAndRepositionDownstream(i, desired * Quaternion.Inverse(before));
+                TurnSubtreeRotations(i, desired * Quaternion.Inverse(before));
             }
         }
 
@@ -695,25 +696,27 @@ namespace OpenIK
 
         private bool SameRotation(Quaternion a, Quaternion b) => Chain.IsTree || _tree.HasPointJunctions ? a.Equals(b) : a == b;
         
-        private void CorrectChildLimit(int parent, int child)
+        // Clamps a joint against its parent's rotation. When the clamp changes the joint, this swings the
+        // subtree around the pivot joint and shifts it, so the centroid of its tips stays where it was.
+        private void CorrectLimit(int index, Quaternion parentRotation, int pivot)
         {
-            Quaternion before = Joints[child].SolverRotation;
-            Quaternion clamped = ClampTreeRotation(child, Joints[parent].SolverRotation, before, before);
-            
+            Quaternion before = Joints[index].SolverRotation;
+            Quaternion clamped = ClampTreeRotation(index, parentRotation, before, before);
+
             if (SameRotation(clamped, before)) return;
-            bool hasCentroid = TryTipCentroid(parent, out Vector3 centroid);
-            Joints[child].SolverRotation = clamped;
-            Chain.RotateAndRepositionDownstream(child, clamped * Quaternion.Inverse(before));
-            if (!hasCentroid || !TryTipCentroid(parent, out Vector3 after)) return;
-            Vector3 from = after - Joints[parent].SolverPosition, to = centroid - Joints[parent].SolverPosition;
-            if (!_tree.PointJunctions[parent] && from.sqrMagnitude > 0f && to.sqrMagnitude > 0f)
+            bool hasCentroid = TryTipCentroid(pivot, out Vector3 centroid);
+            Joints[index].SolverRotation = clamped;
+            Chain.RotateAndRepositionDownstream(index, clamped * Quaternion.Inverse(before));
+            if (!hasCentroid || !TryTipCentroid(pivot, out Vector3 after)) return;
+            Vector3 from = after - Joints[pivot].SolverPosition, to = centroid - Joints[pivot].SolverPosition;
+            if (!_tree.PointJunctions[pivot] && from.sqrMagnitude > 0f && to.sqrMagnitude > 0f)
             {
                 Quaternion compensation = DirectionTurn(from, to);
-                Joints[parent].SolverRotation = compensation * Joints[parent].SolverRotation;
-                Chain.RotateAndRepositionDownstream(parent, compensation);
+                Joints[pivot].SolverRotation = compensation * Joints[pivot].SolverRotation;
+                Chain.RotateAndRepositionDownstream(pivot, compensation);
             }
-            TryTipCentroid(parent, out after);
-            TranslateSubtree(parent, centroid - after);
+            TryTipCentroid(pivot, out after);
+            TranslateSubtree(pivot, centroid - after);
         }
         
         private bool TryTipCentroid(int root, out Vector3 centroid)
@@ -749,6 +752,18 @@ namespace OpenIK
             {
                 _moved[i] = _moved[Joints[i].ParentIndex];
                 if (_moved[i]) Joints[i].SolverPosition += offset;
+            }
+            Array.Clear(_moved, root, _moved.Length - root);
+        }
+
+        // Turns the rotations below root by delta. Their positions stay where the forward pass put them.
+        private void TurnSubtreeRotations(int root, Quaternion delta)
+        {
+            _moved[root] = true;
+            for (int i = root + 1; i < Joints.Length; i++)
+            {
+                _moved[i] = _moved[Joints[i].ParentIndex];
+                if (_moved[i]) Joints[i].SolverRotation = delta * Joints[i].SolverRotation;
             }
             Array.Clear(_moved, root, _moved.Length - root);
         }
