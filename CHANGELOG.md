@@ -2,6 +2,32 @@
 
 This file lists the notable changes in each OpenIK release.
 
+## [0.9.2] - 2026-10-29
+
+### Fixed
+
+- FABRIK now turns every joint, the root included, toward the position the forward pass gave the
+  next joint. It used to slide the chain back to the root and turn only the second joint, so limited
+  chains often stopped short of the target. On a 7-joint robot arm with hinge limits, targets reached
+  within 1 mm went from 73% to 97%, and a solve takes less than half the time.
+- FABRIK now also applies the root's joint limits in the forward pass, keeping the end effector on
+  the target while it does.
+- Slider joints in a FABRIK chain now change length in the backward pass, so they follow moving
+  targets.
+- Multi FABRIK has the same fixes, and a single Multi FABRIK chain gives the same pose as the FABRIK
+  Solver again. Joints with several branches keep the rotation the forward pass fitted to all of
+  them. The root limit correction in the forward pass only runs when exactly one chain has a target.
+
+### Changed
+
+- FABRIK and Multi FABRIK poses differ from 0.9.1, so existing rigs can settle in slightly different
+  poses. The solver pose regression baseline was recorded again.
+
+### Known issues
+
+- When a FABRIK target is out of reach, the chain gets as close as it can but can move by a few
+  millimetres per frame while the target holds still.
+
 ## [0.9.1] - 2026-10-25
 
 ### Fixed

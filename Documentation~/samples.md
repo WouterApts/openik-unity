@@ -8,7 +8,7 @@ the sample colors and lighting.
 
 1. Select OpenIK in Package Manager and open Samples.
 2. Import Shared Assets first, then the scene samples you want.
-3. Open a scene under `Assets/Samples/OpenIK/0.9.1/` and press Play.
+3. Open a scene under `Assets/Samples/OpenIK/0.9.2/` and press Play.
 4. Select Display 1 and click the Game view to give keyboard/mouse controls focus.
 
 The samples work with any Active Input Handling setting (**Input Manager (Old)**,
