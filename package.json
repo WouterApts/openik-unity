@@ -3,7 +3,7 @@
   "version": "0.9.2",
   "displayName": "OpenIK",
   "description": "Inverse kinematics solvers and joint constraints for Unity.",
-  "unity": "6000.0",
+  "unity": "2022.3",
   "license": "MIT",
   "author": {
     "name": "Wouter Apts",

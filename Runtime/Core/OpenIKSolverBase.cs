@@ -550,7 +550,12 @@ namespace OpenIK
 
             SolverJoint[] joints = _chain.Joints;
             for (int i = 0; i < count; i++)
-                joints[i].Transform.GetLocalPositionAndRotation(out _solvedLocalPositions[i], out _solvedLocalRotations[i]);
+            {
+                //joints[i].Transform.GetLocalPositionAndRotation(out _solvedLocalPositions[i], out _solvedLocalRotations[i]);
+                _solvedLocalPositions[i] = joints[i].Transform.localPosition;
+                _solvedLocalRotations[i] = joints[i].Transform.localRotation;
+            }
+                
 
             if (!_hasSolvedLocalPose || !_isFixedStepping)
                 CopyLocalPose(_solvedLocalPositions, _solvedLocalRotations, _previousLocalPositions, _previousLocalRotations);

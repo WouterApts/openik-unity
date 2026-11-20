@@ -186,7 +186,11 @@ namespace OpenIK
 
             // Snapshot every actual pose before writing anything: writing a parent moves its children.
             for (int i = 0; i < count; i++)
-                joints[i].Transform.GetPositionAndRotation(out _actualPositions[i], out _actualRotations[i]);
+            {
+                //joints[i].Transform.GetPositionAndRotation(out _actualPositions[i], out _actualRotations[i]);
+                _actualPositions[i] = joints[i].Transform.position;
+                _actualRotations[i] = joints[i].Transform.rotation;
+            }
 
             Quaternion rootParentRotation = chain.RootParentTransform != null
                 ? chain.RootParentTransform.rotation
