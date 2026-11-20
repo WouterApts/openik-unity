@@ -6,6 +6,8 @@
   </picture>
 </p>
 
+**This forked repository of OpenIK supports Unity 2022.3. For newer versions of Unity, please refer to the original repository.**
+
 **OpenIK** is a free, open-source inverse kinematics package for Unity.
 It includes FABRIK, CCD, Jacobian, and Two Bone solvers, with hinge, ball-and-socket, and slider limits.
 
@@ -24,7 +26,7 @@ https://github.com/user-attachments/assets/124f04d5-e9f4-4067-ba43-f49f7a5b3c19
 
 ## Requirements
 
-- Unity 6 (6000.0) or newer.
+- Unity 2022.3
 - Unity Mathematics 1.3.3, installed automatically as a package dependency.
 
 The core package does not require a render pipeline or the Input System package.
